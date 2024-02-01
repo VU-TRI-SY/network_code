@@ -134,70 +134,87 @@ void *checkSubgrids(void *arg)
   return (void *)res;
 }
 
-bool solveSudoku(Param *arg,int i ,int j)
+// bool checkComplete(void *arg){
+//   Param *data = (Param *)arg;
+//   bool *res = malloc(sizeof(bool));
+//   int n = *(data->n);
+//   int **grid = data->grid;
+//   bool *res = malloc(sizeof(bool));
+//   for(int i = 1; i <= n; i++){
+//     for(int j = 1; j <= n; j++){
+//       if(grid[i][j] == 0){
+//         *res = false;
+//         return (void *) res;
+//       }
+//     }
+//   }
+
+//   *res = true;
+//   return (void *) res;
+// }
+
+bool checkComplete(void *arg)
 {
-  Param *data = (Param* ) arg;
+  Param *data = (Param *)arg;
+  bool *res = malloc(sizeof(bool));
+  int n = *(data->n);
+  int **grid = data->grid;
+  // bool *res = malloc(sizeof(bool));
+  for (int i = 1; i <= n; i++)
+  {
+    for (int j = 1; j <= n; j++)
+    {
+      if (grid[i][j] == 0)
+      {
+        // *res = false;
+        return false;
+      }
+    }
+  }
+
+  // *res = true;
+  return true;
+}
+
+bool solveSudoku(Param *arg, int i, int j)
+{
+  Param *data = (Param *)arg;
   int n = *(data->n);
   int **grid = data->grid;
   // i and j are the indexes of empty position that we are trying to find the number [1,.9] and fill into
 
-  if(i > n || j > n){ //i and j are not valid
-    //call functions to check rows, cols and subgrids
-    //create 3 threads
-    // pthread_attr_t attr;
+  if (i > n || j > n)
+  { // i and j are not valid
+    bool *r1 = (bool *)checkRows(arg);
+    bool *r2 = (bool *)checkCols(arg);
+    bool *r3 = (bool *)checkSubgrids(arg);
 
-    // //declare 3 threads
-    // pthread_t tid1;
-    // pthread_t tid2;
-    // pthread_t tid3;
+    if (*r1 == true && *r2 == true && *r3 == true)
+    {
 
-    // //assign default values for attr
-    // pthread_attr_init(&attr);
-
-    // //create 3 threads
-    // pthread_create(&tid1, &attr, checkRows, (void *)arg);
-    // pthread_create(&tid1, &attr, checkCols, (void *)arg);
-    // pthread_create(&tid1, &attr, checkSubgrids, (void *)arg);
-
-    // //3 variables to store returned values
-    // bool *t1_result;
-    // bool *t2_result;
-    // bool *t3_result;
-
-    // //wait until 3 functions end
-    // pthread_join(tid1, (void **)&t1_result);
-    // pthread_join(tid2, (void **)&t2_result);
-    // pthread_join(tid3, (void **)&t3_result);
-
-    // if(*t1_result && *t2_result && *t3_result) {
-    //   free(t1_result);
-    //   free(t2_result);
-    //   free(t3_result);
-    //   return true;
-    // }else{
-    //   rree(t1_result);
-    //   free(t2_result);
-    //   free(t3_result);
-    //   return false;
-    // }
-
-    bool r1 = checkRows(arg);
-    bool r2 = checkCols(arg);
-    bool r3 = checkSubgrids(arg);
-    // return r1 && r2 && r3;
-    return true;
-  } else{
-    if(grid[i][j] == 0){
-      for(int num = 1; num <= 9; num++){
-        grid[i][j] = num; //make decison by filling num into grid[i][j]
-        //try to fill other cells by calling solveSudoku();
+      return true;
+    }
+    else
+      return false;
+  }
+  else
+  {
+    if (grid[i][j] == 0)
+    {
+      for (int num = 1; num <= 9; num++)
+      {
+        grid[i][j] = num; // make decison by filling num into grid[i][j]
+        // try to fill other cells by calling solveSudoku();
         int r = i;
         int c = j;
-        if(c + 1 > n){
-          //jump to next row;
+        if (c + 1 > n)
+        {
+          // jump to next row;
           r++;
           c = 1;
-        }else{
+        }
+        else
+        {
           c++;
         }
 
@@ -205,30 +222,104 @@ bool solveSudoku(Param *arg,int i ,int j)
         num is the current decision we are trying to make for gird[i][j]
         if this decision leads a valid matrix, the true value will be returned
         */
-        if(solveSudoku(arg, r, c)){
+        if (solveSudoku(arg, r, c))
+        {
           return true;
         }
+
+        grid[i][j] = 0; // backtrack
       }
-    }else{
+    }
+    else
+    {
       int r = i;
       int c = j;
-      if(c + 1 > n){
-        //jump to next row;
+      if (c + 1 > n)
+      {
+        // jump to next row;
         r++;
         c = 1;
-      }else{
+      }
+      else
+      {
         c++;
       }
-      if(solveSudoku(arg, r, c)){
+      if (solveSudoku(arg, r, c))
+      {
         return true;
       }
     }
 
     return false;
   }
-
 }
 
+bool isSafe(int **grid, int n, int row, int col, int num)
+{
+  int subgrid_size = sqrt(n);
+
+  for (int i = 1; i <= n; ++i)
+  {
+    if (grid[row][i] == num || grid[i][col] == num) {
+            return false;
+        }
+    }
+    // Check if the number exists in the subgrid
+    int startRow = (row-1) - (row-1) % subgrid_size + 1;
+    int startCol = (col-1) - (col-1) % subgrid_size + 1;
+
+    for(int r = startRow; r <= subgrid_size + startRow - 1; r++){
+      for (int c = startCol; c <= subgrid_size + startCol - 1; c++)
+        {
+          if(grid[r][c] == num) return false;
+        }
+
+    }
+      return true;
+}
+bool solveSudoku2(int **grid, int n, int i, int j)
+{
+  if (i > n || j > n)
+  {
+    return true;
+  }
+  else
+  {
+    if (grid[i][j] == 0)
+    {
+      for (int num = 1; num <= 9; num++)
+      {
+        if(isSafe(grid, n, i, j, num)){
+          grid[i][j] = num;
+          int r = i;
+          int c = j;
+          if (c + 1 > n){
+            // jump to next row;
+            r++;
+            c = 1;
+          }
+          else c++;
+
+          if(solveSudoku2(grid, n, r, c)) return true;
+          grid[i][j] = 0; //backtrack
+        }
+      }
+    }else{
+      int r = i;
+      int c = j;
+      if (c + 1 > n){
+        // jump to next row;
+        r++;
+        c = 1;
+      }
+      else c++;
+
+      if(solveSudoku2(grid, n, r, c)) return true;
+    }
+
+  }
+  return false;
+}
 // takes puzzle size and grid[][] representing sudoku puzzle
 // and tow booleans to be assigned: complete and valid.
 // row-0 and column-0 is ignored for convenience, so a 9x9 puzzle
@@ -239,10 +330,67 @@ bool solveSudoku(Param *arg,int i ,int j)
 void checkPuzzle(int psize, int **grid, bool *complete, bool *valid)
 {
   // YOUR CODE GOES HERE and in HELPER FUNCTIONS
-  //call sudoku
-  *valid = true;
-  *complete = true;
+  Param *arg = malloc(sizeof(Param));
+  arg->grid = grid;
+  arg->n = &psize;
+  *complete = checkComplete(arg);
+  if (*complete == false)
+  {
+    *valid = false;
+    return;
+  }
+
+  pthread_attr_t attr;
+
+  // declare 3 threads
+  pthread_t tid1;
+  pthread_t tid2;
+  pthread_t tid3;
+
+  // assign default values for attr
+  pthread_attr_init(&attr);
+
+  // create 3 threads
+  pthread_create(&tid1, &attr, checkRows, (void *)arg);
+  pthread_create(&tid2, &attr, checkCols, (void *)arg);
+  pthread_create(&tid3, &attr, checkSubgrids, (void *)arg);
+
+  // 4 variables to store returned values
+  bool *t1_result;
+  bool *t2_result;
+  bool *t3_result;
+  bool *t4_result;
+
+  // wait until 3 functions end
+  pthread_join(tid1, (void **)&t1_result);
+  pthread_join(tid2, (void **)&t2_result);
+  pthread_join(tid3, (void **)&t3_result);
+
+  *valid = *t1_result && *t2_result && *t3_result;
+
+  free(t1_result);
+  free(t2_result);
+  free(t3_result);
+  free(arg);
 }
+
+bool solvePuzzle(int psize, int **grid)
+{
+  Param *arg = malloc(sizeof(Param));
+  arg->n = &psize;
+  arg->grid = grid;
+
+  bool res = solveSudoku(arg, 1, 1);
+
+  free(arg);
+
+  return res;
+}
+// to solve sudoku game
+// 1. try to complete ~ fill all numbers to empty cell
+// 2. check valid = call checkrow, col, subgrid
+
+// to get bonus --> call solveSudoku()
 
 // takes filename and pointer to grid[][]
 // returns size of Sudoku puzzle and fills grid
@@ -318,8 +466,21 @@ int main(int argc, char **argv)
   {
     printf("Valid puzzle? ");
     printf(valid ? "true\n" : "false\n");
+    printSudokuPuzzle(sudokuSize, grid);
   }
-  printSudokuPuzzle(sudokuSize, grid);
+  else
+  {
+    bool res = solveSudoku2(grid, sudokuSize, 1, 1);
+    if (res)
+    {
+      printf("Found solution\n");
+    }
+    else
+    {
+      printf("Can't found solution\n");
+    }
+    printSudokuPuzzle(sudokuSize, grid);
+  }
   deleteSudokuPuzzle(sudokuSize, grid);
   return EXIT_SUCCESS;
 }

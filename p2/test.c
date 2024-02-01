@@ -133,47 +133,6 @@ bool solveSudoku(Param *arg,int i ,int j)
   // i and j are the indexes of empty position that we are trying to find the number [1,.9] and fill into
 
   if(i > n || j > n){ //i and j are not valid
-    //call functions to check rows, cols and subgrids
-    //create 3 threads
-    // printf("run with threads\n");
-    // pthread_attr_t attr;
-
-    // //declare 3 threads
-    // pthread_t tid1;
-    // pthread_t tid2;
-    // pthread_t tid3;
-
-    // //assign default values for attr
-    // pthread_attr_init(&attr);
-
-    // //create 3 threads
-    // pthread_create(&tid1, &attr, checkRows, (void *)arg);
-    // pthread_create(&tid2, &attr, checkCols, (void *)arg);
-    // pthread_create(&tid3, &attr, checkSubgrids, (void *)arg);
-
-    // //3 variables to store returned values
-    // bool *t1_result;
-    // bool *t2_result;
-    // bool *t3_result;
-
-    // //wait until 3 functions end
-    // pthread_join(tid1, (void **)&t1_result);
-    // pthread_join(tid2, (void **)&t2_result);
-    // pthread_join(tid3, (void **)&t3_result);
-
-
-    // if(*t1_result && *t2_result && *t3_result) {
-    //   free(t1_result);
-    //   free(t2_result);
-    //   free(t3_result);
-    //   return true;
-    // }else{
-    //   free(t1_result);
-    //   free(t2_result);
-    //   free(t3_result);
-    //   return false;
-    // }
-    
     bool *r1 = (bool *) checkRows(arg);
     bool *r2 = (bool *) checkCols(arg);
     bool *r3 = (bool *) checkSubgrids(arg);
