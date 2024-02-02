@@ -344,41 +344,38 @@ void checkPuzzle(int psize, int **grid, bool *complete, bool *valid)
   pthread_join(tid_check_complete, (void **)&check_complete_result);
   *complete = *check_complete_result;
   
+
   if (*complete == false)
   {
     *valid = false;
-    return;
+  }else{
+    // declare 3 threads
+    pthread_t tid1;
+    pthread_t tid2;
+    pthread_t tid3;
+
+    // create 3 threads
+    pthread_create(&tid1, &attr, checkRows, (void *)arg);
+    pthread_create(&tid2, &attr, checkCols, (void *)arg);
+    pthread_create(&tid3, &attr, checkSubgrids, (void *)arg);
+
+    // 3 variables to store returned values
+    bool *t1_result;
+    bool *t2_result;
+    bool *t3_result;
+
+    // wait until 3 functions end
+    pthread_join(tid1, (void **)&t1_result);
+    pthread_join(tid2, (void **)&t2_result);
+    pthread_join(tid3, (void **)&t3_result);
+
+    *valid = *t1_result && *t2_result && *t3_result;
+    free(t1_result);
+    free(t2_result);
+    free(t3_result);
   }
-
   
-
-  // declare 3 threads
-  pthread_t tid1;
-  pthread_t tid2;
-  pthread_t tid3;
-
-  
-
-  // create 3 threads
-  pthread_create(&tid1, &attr, checkRows, (void *)arg);
-  pthread_create(&tid2, &attr, checkCols, (void *)arg);
-  pthread_create(&tid3, &attr, checkSubgrids, (void *)arg);
-
-  // 4 variables to store returned values
-  bool *t1_result;
-  bool *t2_result;
-  bool *t3_result;
-
-  // wait until 3 functions end
-  pthread_join(tid1, (void **)&t1_result);
-  pthread_join(tid2, (void **)&t2_result);
-  pthread_join(tid3, (void **)&t3_result);
-
-  *valid = *t1_result && *t2_result && *t3_result;
-
-  free(t1_result);
-  free(t2_result);
-  free(t3_result);
+  free(check_complete_result);
   free(arg);
 }
 
