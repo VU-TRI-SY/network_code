@@ -152,107 +152,6 @@ void* checkComplete(void *arg){
   return (void *) res;
 }
 
-// bool checkComplete(void *arg)
-// {
-//   Param *data = (Param *)arg;
-//   // bool *res = malloc(sizeof(bool));
-//   int n = *(data->n);
-//   int **grid = data->grid;
-//   // bool *res = malloc(sizeof(bool));
-//   for (int i = 1; i <= n; i++)
-//   {
-//     for (int j = 1; j <= n; j++)
-//     {
-//       if (grid[i][j] == 0)
-//       {
-//         // *res = false;
-//         return false;
-//       }
-//     }
-//   }
-
-//   // *res = true;
-//   return true;
-// }
-
-bool solveSudoku(Param *arg, int i, int j)
-{
-  Param *data = (Param *)arg;
-  int n = *(data->n);
-  int **grid = data->grid;
-  // i and j are the indexes of empty position that we are trying to find the number [1,.9] and fill into
-
-  if (i > n || j > n)
-  { // i and j are not valid
-    bool *r1 = (bool *)checkRows(arg);
-    bool *r2 = (bool *)checkCols(arg);
-    bool *r3 = (bool *)checkSubgrids(arg);
-
-    if (*r1 == true && *r2 == true && *r3 == true)
-    {
-
-      return true;
-    }
-    else
-      return false;
-  }
-  else
-  {
-    if (grid[i][j] == 0)
-    {
-      for (int num = 1; num <= 9; num++)
-      {
-        grid[i][j] = num; // make decison by filling num into grid[i][j]
-        // try to fill other cells by calling solveSudoku();
-        int r = i;
-        int c = j;
-        if (c + 1 > n)
-        {
-          // jump to next row;
-          r++;
-          c = 1;
-        }
-        else
-        {
-          c++;
-        }
-
-        /*
-        num is the current decision we are trying to make for gird[i][j]
-        if this decision leads a valid matrix, the true value will be returned
-        */
-        if (solveSudoku(arg, r, c))
-        {
-          return true;
-        }
-
-        grid[i][j] = 0; // backtrack
-      }
-    }
-    else
-    {
-      int r = i;
-      int c = j;
-      if (c + 1 > n)
-      {
-        // jump to next row;
-        r++;
-        c = 1;
-      }
-      else
-      {
-        c++;
-      }
-      if (solveSudoku(arg, r, c))
-      {
-        return true;
-      }
-    }
-
-    return false;
-  }
-}
-
 bool isSafe(int **grid, int n, int row, int col, int num)
 {
   int subgrid_size = sqrt(n);
@@ -276,7 +175,8 @@ bool isSafe(int **grid, int n, int row, int col, int num)
     }
       return true;
 }
-bool solveSudoku2(int **grid, int n, int i, int j)
+
+bool solveSudoku(int **grid, int n, int i, int j)
 {
   if (i > n || j > n)
   {
@@ -299,7 +199,7 @@ bool solveSudoku2(int **grid, int n, int i, int j)
           }
           else c++;
 
-          if(solveSudoku2(grid, n, r, c)) return true;
+          if(solveSudoku(grid, n, r, c)) return true;
           grid[i][j] = 0; //backtrack
         }
       }
@@ -313,12 +213,18 @@ bool solveSudoku2(int **grid, int n, int i, int j)
       }
       else c++;
 
-      if(solveSudoku2(grid, n, r, c)) return true;
+      if(solveSudoku(grid, n, r, c)) return true;
     }
 
   }
   return false;
 }
+
+bool solvePuzzle(int psize, int **grid)
+{
+  return solveSudoku(grid, psize, 1, 1); //starting runnin-solving from top-left point (1,1)
+}
+
 // takes puzzle size and grid[][] representing sudoku puzzle
 // and tow booleans to be assigned: complete and valid.
 // row-0 and column-0 is ignored for convenience, so a 9x9 puzzle
@@ -379,21 +285,6 @@ void checkPuzzle(int psize, int **grid, bool *complete, bool *valid)
   free(arg);
 }
 
-bool solvePuzzle(int psize, int **grid)
-{
-  Param *arg = malloc(sizeof(Param));
-  arg->n = &psize;
-  arg->grid = grid;
-
-  bool res = solveSudoku(arg, 1, 1);
-
-  free(arg);
-
-  return res;
-}
-// to solve sudoku game
-// 1. try to complete ~ fill all numbers to empty cell
-// 2. check valid = call checkrow, col, subgrid
 
 // to get bonus --> call solveSudoku()
 
@@ -450,11 +341,8 @@ void deleteSudokuPuzzle(int psize, int **grid)
   free(grid);
 }
 
-// expects file name of the puzzle as argument in command line
-int main(int argc, char **argv)
-{
-  if (argc != 2)
-  {
+int main(int argc, char **argv) {
+  if (argc != 2) {
     printf("usage: ./sudoku puzzle.txt\n");
     return EXIT_FAILURE;
   }
@@ -467,24 +355,20 @@ int main(int argc, char **argv)
   checkPuzzle(sudokuSize, grid, &complete, &valid);
   printf("Complete puzzle? ");
   printf(complete ? "true\n" : "false\n");
-  if (complete)
-  {
+  if (complete) {
     printf("Valid puzzle? ");
     printf(valid ? "true\n" : "false\n");
-    printSudokuPuzzle(sudokuSize, grid);
   }
-  else
-  {
-    bool res = solveSudoku2(grid, sudokuSize, 1, 1);
-    if (res)
-    {
-      printf("Found solution\n");
+  printSudokuPuzzle(sudokuSize, grid);
+
+  if(!complete){
+    bool res = solvePuzzle(sudokuSize, grid); 
+    if(res){
+      printf("Found a solution for puzzle:\n");
+      printSudokuPuzzle(sudokuSize, grid);
+    }else{
+      printf("Can't find solution\n");
     }
-    else
-    {
-      printf("Can't found solution\n");
-    }
-    printSudokuPuzzle(sudokuSize, grid);
   }
   deleteSudokuPuzzle(sudokuSize, grid);
   return EXIT_SUCCESS;
