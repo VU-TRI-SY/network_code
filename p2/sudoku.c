@@ -134,47 +134,46 @@ void *checkSubgrids(void *arg)
   return (void *)res;
 }
 
-// bool checkComplete(void *arg){
-//   Param *data = (Param *)arg;
-//   bool *res = malloc(sizeof(bool));
-//   int n = *(data->n);
-//   int **grid = data->grid;
-//   bool *res = malloc(sizeof(bool));
-//   for(int i = 1; i <= n; i++){
-//     for(int j = 1; j <= n; j++){
-//       if(grid[i][j] == 0){
-//         *res = false;
-//         return (void *) res;
-//       }
-//     }
-//   }
-
-//   *res = true;
-//   return (void *) res;
-// }
-
-bool checkComplete(void *arg)
-{
+void* checkComplete(void *arg){
   Param *data = (Param *)arg;
-  bool *res = malloc(sizeof(bool));
   int n = *(data->n);
   int **grid = data->grid;
-  // bool *res = malloc(sizeof(bool));
-  for (int i = 1; i <= n; i++)
-  {
-    for (int j = 1; j <= n; j++)
-    {
-      if (grid[i][j] == 0)
-      {
-        // *res = false;
-        return false;
+  bool *res = malloc(sizeof(bool));
+  for(int i = 1; i <= n; i++){
+    for(int j = 1; j <= n; j++){
+      if(grid[i][j] == 0){
+        *res = false;
+        return (void *) res;
       }
     }
   }
 
-  // *res = true;
-  return true;
+  *res = true;
+  return (void *) res;
 }
+
+// bool checkComplete(void *arg)
+// {
+//   Param *data = (Param *)arg;
+//   // bool *res = malloc(sizeof(bool));
+//   int n = *(data->n);
+//   int **grid = data->grid;
+//   // bool *res = malloc(sizeof(bool));
+//   for (int i = 1; i <= n; i++)
+//   {
+//     for (int j = 1; j <= n; j++)
+//     {
+//       if (grid[i][j] == 0)
+//       {
+//         // *res = false;
+//         return false;
+//       }
+//     }
+//   }
+
+//   // *res = true;
+//   return true;
+// }
 
 bool solveSudoku(Param *arg, int i, int j)
 {
@@ -333,22 +332,32 @@ void checkPuzzle(int psize, int **grid, bool *complete, bool *valid)
   Param *arg = malloc(sizeof(Param));
   arg->grid = grid;
   arg->n = &psize;
-  *complete = checkComplete(arg);
+
+  pthread_attr_t attr;
+  // assign default values for attr
+  pthread_attr_init(&attr);
+
+  pthread_t tid_check_complete;
+  pthread_create(&tid_check_complete, &attr, checkComplete, (void *)arg);
+  bool *check_complete_result;
+  //wait checkComplete() end
+  pthread_join(tid_check_complete, (void **)&check_complete_result);
+  *complete = *check_complete_result;
+  
   if (*complete == false)
   {
     *valid = false;
     return;
   }
 
-  pthread_attr_t attr;
+  
 
   // declare 3 threads
   pthread_t tid1;
   pthread_t tid2;
   pthread_t tid3;
 
-  // assign default values for attr
-  pthread_attr_init(&attr);
+  
 
   // create 3 threads
   pthread_create(&tid1, &attr, checkRows, (void *)arg);
@@ -359,7 +368,6 @@ void checkPuzzle(int psize, int **grid, bool *complete, bool *valid)
   bool *t1_result;
   bool *t2_result;
   bool *t3_result;
-  bool *t4_result;
 
   // wait until 3 functions end
   pthread_join(tid1, (void **)&t1_result);
