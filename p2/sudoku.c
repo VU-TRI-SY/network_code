@@ -134,22 +134,26 @@ void *checkSubgrids(void *arg)
   return (void *)res;
 }
 
-void* checkComplete(void *arg){
+void *checkComplete(void *arg)
+{
   Param *data = (Param *)arg;
   int n = *(data->n);
   int **grid = data->grid;
   bool *res = malloc(sizeof(bool));
-  for(int i = 1; i <= n; i++){
-    for(int j = 1; j <= n; j++){
-      if(grid[i][j] == 0){
+  for (int i = 1; i <= n; i++)
+  {
+    for (int j = 1; j <= n; j++)
+    {
+      if (grid[i][j] == 0)
+      {
         *res = false;
-        return (void *) res;
+        return (void *)res;
       }
     }
   }
 
   *res = true;
-  return (void *) res;
+  return (void *)res;
 }
 
 bool isSafe(int **grid, int n, int row, int col, int num)
@@ -158,22 +162,23 @@ bool isSafe(int **grid, int n, int row, int col, int num)
 
   for (int i = 1; i <= n; ++i)
   {
-    if (grid[row][i] == num || grid[i][col] == num) {
-            return false;
-        }
-    }
-    // Check if the number exists in the subgrid
-    int startRow = (row-1) - (row-1) % subgrid_size + 1;
-    int startCol = (col-1) - (col-1) % subgrid_size + 1;
+    if (grid[row][i] == num || grid[i][col] == num)
+      return false;
+  }
+  // Check if the number exists in the subgrid
+  int startRow = (row - 1) - (row - 1) % subgrid_size + 1;
+  int startCol = (col - 1) - (col - 1) % subgrid_size + 1;
 
-    for(int r = startRow; r <= subgrid_size + startRow - 1; r++){
-      for (int c = startCol; c <= subgrid_size + startCol - 1; c++)
-        {
-          if(grid[r][c] == num) return false;
-        }
+  for (int r = startRow; r <= subgrid_size + startRow - 1; r++)
+  {
+    for (int c = startCol; c <= subgrid_size + startCol - 1; c++)
+    {
 
+      if (grid[r][c] == num)
+        return false;
     }
-      return true;
+  }
+  return true;
 }
 
 bool solveSudoku(int **grid, int n, int i, int j)
@@ -186,43 +191,51 @@ bool solveSudoku(int **grid, int n, int i, int j)
   {
     if (grid[i][j] == 0)
     {
-      for (int num = 1; num <= 9; num++)
+      for (int num = 1; num <= n; num++)
       {
-        if(isSafe(grid, n, i, j, num)){
+        if (isSafe(grid, n, i, j, num))
+        {
           grid[i][j] = num;
           int r = i;
           int c = j;
-          if (c + 1 > n){
+          if (c + 1 > n)
+          {
             // jump to next row;
             r++;
             c = 1;
           }
-          else c++;
+          else
+            c++;
 
-          if(solveSudoku(grid, n, r, c)) return true;
-          grid[i][j] = 0; //backtrack
+          if (solveSudoku(grid, n, r, c))
+            return true;
+          grid[i][j] = 0; // backtrack
         }
       }
-    }else{
+    }
+    else
+    {
       int r = i;
       int c = j;
-      if (c + 1 > n){
+      if (c + 1 > n)
+      {
         // jump to next row;
         r++;
         c = 1;
       }
-      else c++;
+      else
+        c++;
 
-      if(solveSudoku(grid, n, r, c)) return true;
+      if (solveSudoku(grid, n, r, c))
+        return true;
     }
-
   }
   return false;
 }
 
 bool solvePuzzle(int psize, int **grid)
 {
-  return solveSudoku(grid, psize, 1, 1); //starting runnin-solving from top-left point (1,1)
+  return solveSudoku(grid, psize, 1, 1); // starting runnin-solving from top-left point (1,1)
 }
 
 // takes puzzle size and grid[][] representing sudoku puzzle
@@ -246,15 +259,16 @@ void checkPuzzle(int psize, int **grid, bool *complete, bool *valid)
   pthread_t tid_check_complete;
   pthread_create(&tid_check_complete, &attr, checkComplete, (void *)arg);
   bool *check_complete_result;
-  //wait checkComplete() end
+  // wait checkComplete() end
   pthread_join(tid_check_complete, (void **)&check_complete_result);
   *complete = *check_complete_result;
-  
 
   if (*complete == false)
   {
     *valid = false;
-  }else{
+  }
+  else
+  {
     // declare 3 threads
     pthread_t tid1;
     pthread_t tid2;
@@ -280,11 +294,10 @@ void checkPuzzle(int psize, int **grid, bool *complete, bool *valid)
     free(t2_result);
     free(t3_result);
   }
-  
+
   free(check_complete_result);
   free(arg);
 }
-
 
 // to get bonus --> call solveSudoku()
 
@@ -341,8 +354,10 @@ void deleteSudokuPuzzle(int psize, int **grid)
   free(grid);
 }
 
-int main(int argc, char **argv) {
-  if (argc != 2) {
+int main(int argc, char **argv)
+{
+  if (argc != 2)
+  {
     printf("usage: ./sudoku puzzle.txt\n");
     return EXIT_FAILURE;
   }
@@ -355,18 +370,23 @@ int main(int argc, char **argv) {
   checkPuzzle(sudokuSize, grid, &complete, &valid);
   printf("Complete puzzle? ");
   printf(complete ? "true\n" : "false\n");
-  if (complete) {
+  if (complete)
+  {
     printf("Valid puzzle? ");
     printf(valid ? "true\n" : "false\n");
   }
   printSudokuPuzzle(sudokuSize, grid);
 
-  if(!complete){
-    bool res = solvePuzzle(sudokuSize, grid); 
-    if(res){
+  if (!complete)
+  {
+    bool res = solvePuzzle(sudokuSize, grid);
+    if (res)
+    {
       printf("Found a solution for puzzle:\n");
       printSudokuPuzzle(sudokuSize, grid);
-    }else{
+    }
+    else
+    {
       printf("Can't find solution\n");
     }
   }
