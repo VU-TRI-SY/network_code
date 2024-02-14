@@ -22,4 +22,5 @@ Task *createTask(char *name, int priority, int burst);
 void sortList(Node *head);
 void copyList(Node **head, Node *data_list);
 bool cmp(char *a, char *b);
+void runTaskInfor(Node *head);
 #endif

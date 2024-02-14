@@ -6,7 +6,7 @@
 #ifndef SCHEDULE_RR_H
 #define SCHEDULE_RR_H
 
-void sjf_scheduler();
+void rr_scheduler();
 bool comesBefore(Task *t1, Task *t2);
 Task *pickNextTask();
 #endif

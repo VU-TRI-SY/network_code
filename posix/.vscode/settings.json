@@ -80,6 +80,7 @@
     "functional": "c",
     "tuple": "c",
     "utility": "c",
-    "schedule_priority.h": "c"
+    "schedule_priority.h": "c",
+    "schedule_priority_rr.h": "c"
   }
 }

@@ -13,9 +13,11 @@ typedef struct task_ {
     char *name;
     int priority;
     int burst;
+    int total_burst;
     int arrival_time;
     int complete_time;
     int start_time;
+    int cur_turn;
 } Task; 
 
 #endif

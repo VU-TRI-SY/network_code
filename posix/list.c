@@ -66,10 +66,11 @@ Task *createTask(char *name, int priority, int burst){
     newTask->name = name;
     newTask->priority = priority;
     newTask->burst = burst;
+    newTask->total_burst = burst;
     newTask->arrival_time = 0;
     newTask->complete_time = -1;
     newTask->start_time = -1;
-
+    newTask->cur_turn = 0;
     return newTask;
 }
 
@@ -105,6 +106,37 @@ void copyList(Node **head, Node *data_list){
 bool cmp(char *a, char *b)
 {
     return strcmp(a, b) < 0;
+}
+
+void runTaskInfor(Node *head){
+    printf("%-3s|", "...");
+    Node* cur = head;
+    while(cur != NULL){
+        printf(" %-4s |", cur->task->name);
+        cur = cur->next;
+    }
+    printf("\n%-3s|", "TAT");
+    cur = head;
+    while(cur != NULL){
+        printf(" %-4d |", cur->task->complete_time - cur->task->arrival_time);
+        cur = cur->next;
+    }
+
+    printf("\n%-3s|", "WT");
+    cur = head;
+    while(cur != NULL){
+        printf(" %-4d |", cur->task->complete_time - cur->task->arrival_time - cur->task->total_burst);
+        cur = cur->next;
+    }
+
+    printf("\n%-3s|", "RT");
+    cur = head;
+    while(cur != NULL){
+        printf(" %-4d |", cur->task->start_time - cur->task->arrival_time);
+        cur = cur->next;
+    }
+
+    printf("\n");
 }
 
 

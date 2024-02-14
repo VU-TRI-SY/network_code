@@ -35,34 +35,7 @@ void priority_scheduler(){
     }
 
     printf("CPU Utilization: %.2f%%\n",  time_counting * 100.0 / (time_counting + total_dispatcher_time));
-    printf("%-3s|", "...");
-    Node* cur = sorted_task_list;
-    while(cur != NULL){
-        printf(" %-4s |", cur->task->name);
-        cur = cur->next;
-    }
-    printf("\n%-3s|", "TAT");
-    cur = sorted_task_list;
-    while(cur != NULL){
-        printf(" %-4d |", cur->task->complete_time - cur->task->arrival_time);
-        cur = cur->next;
-    }
-
-    printf("\n%-3s|", "WT");
-    cur = sorted_task_list;
-    while(cur != NULL){
-        printf(" %-4d |", cur->task->complete_time - cur->task->arrival_time - cur->task->burst);
-        cur = cur->next;
-    }
-
-    printf("\n%-3s|", "RT");
-    cur = sorted_task_list;
-    while(cur != NULL){
-        printf(" %-4d |", cur->task->start_time - cur->task->arrival_time);
-        cur = cur->next;
-    }
-
-    printf("\n");
+    runTaskInfor(sorted_task_list);
 }
 
 bool comesBefore(Task* t1, Task* t2){
