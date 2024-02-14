@@ -1,0 +1,15 @@
+1. modify schedulers.c
+void add(char *name, int priority, int burst): create new Task and add to the list
+
+// invoke the scheduler
+void schedule(char* exe_file_name): base on the name of given executable file to call the
+corresponding algorithm
+
+2. files:
+schedule_fcfs.c, schedule_sjf.c, schedule_priority.c, schedule_rr.c, schedule_priority_rr.c
+each file 
+
+Each file will has a function that receives a linked list containing all tasks to
+schedule
+
+3. list.h and list.c should be modified to support queue
