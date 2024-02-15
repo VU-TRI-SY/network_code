@@ -16,18 +16,18 @@ void rr_scheduler(){
     sortList(sorted_task_list);
     // Node *cur = running_order_list;
     while(1){
-        Task* t = pickNextTask(); 
+        Task* t = pickNextTask(); //select the best task
         if(t == NULL) break;
-        if(t->cur_turn == 0) t->start_time = time_counting;
+        if(t->cur_turn == 0) t->start_time = time_counting; //t->cur_turn == 0 means this is the first time that t is run
         int slice = QUANTUM;
-        if(t->burst < QUANTUM){
+        if(t->burst < QUANTUM){ //the remaining time of t < 10 --> just run t by remaining time
             slice = t->burst;
         }
         run(t, slice); //run this task
-        t->cur_turn++;
+        t->cur_turn++; //update cur_turn
         time_counting += slice; //update time counting after run this task
         t->burst -= slice; 
-        if(t->burst == 0) {
+        if(t->burst == 0) { //complete running of task t
             t->complete_time = time_counting; //update complete time = time_counting
             delete(&task_list, t); //remove completed task
         }

@@ -17,10 +17,11 @@ typedef struct node {
 void insert(Node **head, Task *task);
 void delete(Node **head, Task *task);
 void traverse(Node *head);
+
 Node* createNode(Task *task);
 Task *createTask(char *name, int priority, int burst);
-void sortList(Node *head);
-void copyList(Node **head, Node *data_list);
-bool cmp(char *a, char *b);
+void sortList(Node *head); //sort all tasks on the list by ASC order (alphabet order)
+void copyList(Node **head, Node *data_list); //copy all tasks from data_list to list 'head'
+bool cmp(char *a, char *b); //compare 2 tasks by name
 void runTaskInfor(Node *head);
 #endif

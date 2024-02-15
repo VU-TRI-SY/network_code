@@ -12,12 +12,12 @@
 typedef struct task_ {
     char *name;
     int priority;
-    int burst;
-    int total_burst;
-    int arrival_time;
+    int burst; //current burst time ~ remaining burst time
+    int total_burst; //init burst time ~ original burst time
+    int arrival_time; 
     int complete_time;
     int start_time;
-    int cur_turn;
+    int cur_turn; //the number of time that task is run by RR
 } Task; 
 
 #endif

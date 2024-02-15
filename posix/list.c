@@ -76,6 +76,7 @@ Task *createTask(char *name, int priority, int burst){
 
 void sortList(Node *head){
     //sort all tasks by the lexicographical order (increasing order)
+    //using bubble sort
     bool check;
     do{
         Node *cur = head;
@@ -112,27 +113,27 @@ void runTaskInfor(Node *head){
     printf("%-3s|", "...");
     Node* cur = head;
     while(cur != NULL){
-        printf(" %-4s |", cur->task->name);
+        printf(" %-4s|", cur->task->name);
         cur = cur->next;
     }
     printf("\n%-3s|", "TAT");
     cur = head;
     while(cur != NULL){
-        printf(" %-4d |", cur->task->complete_time - cur->task->arrival_time);
+        printf(" %-4d|", cur->task->complete_time - cur->task->arrival_time);
         cur = cur->next;
     }
 
     printf("\n%-3s|", "WT");
     cur = head;
     while(cur != NULL){
-        printf(" %-4d |", cur->task->complete_time - cur->task->arrival_time - cur->task->total_burst);
+        printf(" %-4d|", cur->task->complete_time - cur->task->arrival_time - cur->task->total_burst);
         cur = cur->next;
     }
 
     printf("\n%-3s|", "RT");
     cur = head;
     while(cur != NULL){
-        printf(" %-4d |", cur->task->start_time - cur->task->arrival_time);
+        printf(" %-4d|", cur->task->start_time - cur->task->arrival_time);
         cur = cur->next;
     }
 
