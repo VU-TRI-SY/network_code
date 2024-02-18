@@ -19,7 +19,7 @@ using namespace std;
 #define BUFFER_SIZE 1024 // Adjust based on TFTP specifications
 #define DATA_PACKET_SIZE 512
 char *program;
-
+unsigned int lastBlockSent = 0;
 /*void sendData(int sockfd, struct sockaddr_in *cli_addr, socklen_t cli_len, FILE *file) {
     unsigned short blockNum = 1;
     int readBytes;
@@ -66,6 +66,14 @@ void sendData(int sock, const sockaddr_in& clientAddr, const char* data, size_t 
     // Send the packet
     sendto(sock, packet, packetSize, 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
 }
+void sendACK(int sock, const sockaddr_in& clientAddr, uint16_t blockNumber) {
+    char ackPacket[4]; // ACK packet size
+    ackPacket[0] = 0; // Opcode for ACK is 0 4
+    ackPacket[1] = 4; // Opcode for ACK
+    ackPacket[2] = blockNumber >> 8; // Block number high byte
+    ackPacket[3] = blockNumber & 0xFF; // Block number low byte
+    sendto(sock, ackPacket, sizeof(ackPacket), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
+}
 
 void sendError(int sock, const sockaddr_in& clientAddr, int errorCode, const std::string& errorMessage) {
     std::vector<char> packet;
@@ -91,22 +99,26 @@ void sendError(int sock, const sockaddr_in& clientAddr, int errorCode, const std
 void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileName) {
     string server_folder (SERVER_FOLDER);
     string file_to_read = server_folder + fileName;
-    // cout << "Read from file: " << file_to_read << endl;
     std::ifstream fileStream(file_to_read, std::ios::binary);
     if (!fileStream) {
         sendError(sock, clientAddr, 1, "File not found");
         return;
     }
 
-    std::vector<char> buffer(DATA_PACKET_SIZE);
+    sendACK(sock, clientAddr, 0); //send ack for successfull file name
+    // std::vector<char> buffer(DATA_PACKET_SIZE);
+
     uint16_t blockNumber = 1;
 
     while (fileStream) {
+        std::vector<char> buffer(DATA_PACKET_SIZE); //move to this line
+        /*if the buffer has fixed size 512 and the last block has size < 512 (e.g. 182) then it 
+        will store the last block for the first 182 bytes and the other bytes (512-182) still 
+        contain the data of the last time read before*/
         fileStream.read(buffer.data(), DATA_PACKET_SIZE);
         std::streamsize bytesRead = fileStream.gcount();
-
         // If bytesRead is 0, we've reached the end of the file. This handles empty files as well.
-        if (bytesRead <= 0 && blockNumber > 1) break;
+        if (bytesRead <= 0) break;
 
         // Convert to using raw pointer for the buffer data
         sendData(sock, clientAddr, buffer.data(), bytesRead, blockNumber++);
@@ -114,19 +126,47 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
         
         // Here you should wait for an ACK for the blockNumber you've just sent
         // If ACK is not received, resend the data or handle error accordingly
+
+        unsigned short ack_opcode, ack_block_number;
+        char ack_buffer[4];
+        struct sockaddr_in from_addr = clientAddr;
+        socklen_t from_len = sizeof(from_addr);
+        int recv_len = recvfrom(sock, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr *)&from_addr, &from_len);
+        if (recv_len < 0)
+        {
+            perror("Error receiving ACK");
+            // Handle error
+            // break;
+        }
+        else if (recv_len == 4)
+        { // Proper ACK packet size
+            // Extract opcode
+            memcpy(&ack_opcode, ack_buffer, 2);
+            ack_opcode = ntohs(ack_opcode);
+
+            // Extract block number
+            memcpy(&ack_block_number, ack_buffer + 2, 2);
+            ack_block_number = ntohs(ack_block_number);
+            if (ack_opcode == TFTP_ACK)
+            {
+                // std::cout << "Received ACK for block " << ack_block_number << std::endl;
+                printf("Received Ack #%d\n", ack_block_number);
+                // Variable to track the last block number sent
+                size_t fileSize = 0;  // Variable to track the file size if necessary
+                size_t bytesRead = 0; // Variable to track the number of bytes read from the file for the last DATA packet
+                // Check if this is the ACK for the last block sent
+                if (ack_block_number == lastBlockSent){
+                    lastBlockSent++;
+                    // break;
+                }
+            }
+        }
     }
 
     fileStream.close();
 }
 
-void sendACK(int sock, const sockaddr_in& clientAddr, uint16_t blockNumber) {
-    char ackPacket[4]; // ACK packet size
-    ackPacket[0] = 0; // Opcode for ACK is 0 4
-    ackPacket[1] = 4; // Opcode for ACK
-    ackPacket[2] = blockNumber >> 8; // Block number high byte
-    ackPacket[3] = blockNumber & 0xFF; // Block number low byte
-    sendto(sock, ackPacket, sizeof(ackPacket), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
-}
+
 
 void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::string& fileName) {
     string server_folder (SERVER_FOLDER);
@@ -156,13 +196,14 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
 
         if (buffer[1] == 3) { // DATA opcode is 3
             int receivedBlockNumber = (buffer[2] << 8) | (unsigned char)buffer[3];
+            printf("Reveived block #%d\n", receivedBlockNumber);
             if (receivedBlockNumber == blockNumber) {
                 string str_to_write = "";
                 // fileStream.write(buffer + 2, recv_len - 2);
                 for(int i = 4; i <= recv_len-1; i++) str_to_write += buffer[i];
                 fileStream << str_to_write;
                 sendACK(sock, clientAddr, blockNumber);
-                if (recv_len - 2 < DATA_PACKET_SIZE) { // Last packet
+                if (recv_len - 4 < DATA_PACKET_SIZE) { // Last packet
                     fileStream.close();
                     return;
                     break;
@@ -198,9 +239,9 @@ int handleIncomingRequest(int sockfd) {
     socklen_t cli_len = sizeof(cli_addr);
     char buffer[BUFFER_SIZE];
     FILE *file = nullptr;
-
     for (;;) {
 
+        printf("\nWating to receive request\n\n");
         /*
          * TODO: Receive the 1st request packet from the client
          */
@@ -224,27 +265,30 @@ int handleIncomingRequest(int sockfd) {
             break;
         }
 
+        char* fileName = buffer + 2;  // Skip the first 2 bytes of opcode
+        printf("Requested filename is %s\n", fileName);
+        struct sockaddr_in clientAddr = *(struct sockaddr_in*)&cli_addr;
         // Determine packet type (RRQ or WRQ) and handle accordingly
         if (buffer[1] == TFTP_RRQ) {
             // Handle RRQ: Open file, read data, send DATA packets
             // Extract the filename from the request packet
             // Assuming the filename immediately follows the 2-byte opcode, and is null-terminated
-            char* fileName = buffer + 2;  // Skip the first 2 bytes of opcode
+            // char* fileName = buffer + 2;  // Skip the first 2 bytes of opcode
             // Convert sockaddr to sockaddr_in for address compatibility
-            struct sockaddr_in* clientAddr = (struct sockaddr_in*)&cli_addr;
+            // struct sockaddr_in* clientAddr = (struct sockaddr_in*)&cli_addr;
 
             // Call handleRRQ with the extracted filename and client address
-            handleRRQ(sockfd, *clientAddr, std::string(fileName));
+            handleRRQ(sockfd, clientAddr, std::string(fileName));
 
         } else if (buffer[1] == TFTP_WRQ) {
 
             // Handle WRQ: Open file for writing, receive DATA packets, send ACKs
             // Extract the filename from the request packet
             // Assuming the filename immediately follows the 2-byte opcode, and is null-terminated
-            char* fileName = buffer + 2;  // Skip the first 2 bytes of opcode
+            // char* fileName = buffer + 2;  // Skip the first 2 bytes of opcode
 
             // Convert sockaddr to sockaddr_in for address compatibility
-            struct sockaddr_in clientAddr = *(struct sockaddr_in*)&cli_addr;
+            // struct sockaddr_in clientAddr = *(struct sockaddr_in*)&cli_addr;
 
             // Call handleWRQ with the extracted filename, client address, and client address length
             handleWRQ(sockfd, clientAddr, cli_len, std::string(fileName));
