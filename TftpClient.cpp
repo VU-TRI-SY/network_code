@@ -18,69 +18,14 @@
 #include "TftpOpcode.h"
 #include "TftpCommon.cpp"
 using namespace std;
-#define SERV_UDP_PORT 61125
-#define SERV_HOST_ADDR "127.0.0.1"
-#define BUFFER_SIZE 1024 
-#define DATA_PACKET_SIZE 512
+// #define SERV_UDP_PORT 61125
+// #define SERV_HOST_ADDR "127.0.0.1"
+// #define BUFFER_SIZE 1024 
+// #define DATA_PACKET_SIZE 512
 
 /* A pointer to the name of this program for error reporting.      */
 char *program;
 unsigned int lastBlockSent = 0;
-
-/* The main program sets up the local socket for communication     */
-/* and the server's address and port (well-known numbers) before   */
-/* calling the processFileTransfer main loop.                      */
-
-void sendACK(int sock, const sockaddr_in &clientAddr, uint16_t blockNumber)
-{
-    char ackPacket[4];                 // ACK packet size
-    ackPacket[0] = 0;                  // Opcode for ACK is 0 4
-    ackPacket[1] = 4;                  // Opcode for ACK
-    ackPacket[2] = blockNumber >> 8;   // Block number high byte
-    ackPacket[3] = blockNumber & 0xFF; // Block number low byte
-    sendto(sock, ackPacket, sizeof(ackPacket), 0, (struct sockaddr *)&clientAddr, sizeof(clientAddr));
-}
-
-void sendData(int sock, const sockaddr_in& clientAddr, const char* data, size_t dataSize, uint16_t blockNumber) {
-    char packet[4 + DATA_PACKET_SIZE]; // Assuming DATA_PACKET_SIZE is defined as 512
-    size_t packetSize = 4 + dataSize; // 4 bytes for header, rest for data
-
-    // Opcode for DATA packet
-    packet[0] = 0;
-    packet[1] = TFTP_DATA; // DATA_OPCODE should be defined as 3
-
-    // Block number
-    packet[2] = blockNumber >> 8;
-    packet[3] = blockNumber & 0xFF;
-
-    // Copy data into packet
-    memcpy(packet + 4, data, dataSize);
-
-    // Send the packet
-    sendto(sock, packet, packetSize, 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
-}
-
-void sendError(int sock, const sockaddr_in& clientAddr, int errorCode, const std::string& errorMessage) {
-    std::vector<char> packet;
-    // Construct and send an ERROR packet similarly to sendData
-    // Opcode for ERROR packet
-    packet.push_back(0);
-    packet.push_back(TFTP_ERROR); // ERROR_OPCODE should be defined as 5
-
-    // Error code
-    packet.push_back(errorCode >> 8);
-    packet.push_back(errorCode & 0xFF);
-
-    // Error message
-    for (char c : errorMessage) {
-        packet.push_back(c);
-    }
-    packet.push_back('\0'); // Null-terminated string
-
-    // Send the packet
-    sendto(sock, packet.data(), packet.size(), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
-
-}
 
 bool readNextChunk(FILE *filePtr, char *dataBuffer, size_t *bytesRead)
 {
@@ -353,11 +298,6 @@ int main(int argc, char *argv[])
     memset(&serv_addr, 0, sizeof(serv_addr));
     memset(&cli_addr, 0, sizeof(cli_addr));
 
-    /*
-     * TODO: initialize server and client address, create socket and bind socket as you did in
-     * programming assignment 1
-     */
-    // create socket
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0)
     {
@@ -373,19 +313,9 @@ int main(int argc, char *argv[])
     // sets the port number for the socket.
     serv_addr.sin_port = htons(SERV_UDP_PORT);
 
-    // 3. Bind. Associate the socket to serv_addr
-    // if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-    //     perror("Error on binding");
-    //     exit(2);
-    // }
 
     printf("Bind socket successfull\n");
-    /*
-     * TODO: Verify arguments, parse arguments to see if it is a read request (r) or write request (w),
-     * parse the filename to transfer, open the file for read or write
-     */
 
-    // Assuming the program requires exactly 2 arguments: operation mode, and filename
     if (argc != 3)
     {
         std::cerr << "Usage: " << program << " <r|w> <filename>" << std::endl;
@@ -395,9 +325,6 @@ int main(int argc, char *argv[])
     // Extract the operation mode and filename from the arguments
     char operationMode = argv[1][0]; // First character of the first argument ('r' or 'w')
 
-    // char path[strlen(CLIENT_FOLDER) + strlen(argv[2])];
-    // strcpy(path, CLIENT_FOLDER);
-    // strcat(path, argv[2]);
     const char *filename = argv[2];
 
     char path[strlen(CLIENT_FOLDER) + strlen(argv[2])];
@@ -411,8 +338,7 @@ int main(int argc, char *argv[])
     {
         // Open the file for reading (server will send the file to the client)
         filePtr = fopen(path_to_file, "at"); //at: for append mode
-        // read data from a file of server foler and write to a file in client folder
-        // printf("Reading file %s %p\n", path_to_file, filePtr);
+
 
         if (!filePtr)
         {
@@ -438,21 +364,6 @@ int main(int argc, char *argv[])
         exit(4);
     }
 
-    /*
-     * TODO: create the 1st tftp request packet (RRQ or WRQ) and send it to the server via socket.
-     * Remember to use htons when filling the opcode in the tftp request packet.
-     *
-     * char buffer[MAX_PACKET_LEN];
-    char * bpt = buffer; // point to the beginning of the buffer
-    Unsigned short * opCode = (unsigned short *) bpt; // opCode points to the beginning of the buffer
-    *opCode = htons(TFTP_DATA); // fill in op code for data packet.
-    Unsigned short * block = (unsigned short * )(bpt + 2); // move bpt towards right by 2 bytes
-    *block = htons(blocknum); // fill in block number
-    bpt  = bpt + 4; // move bpt towards right by 4 byes
-    // now bpt points to the beginning of the actual file bytes, fill the rest of the 512 bytes of file data using strncpy.
-     *
-     */
-
     char buffer[MAX_PACKET_LEN];
     char *bpt = buffer; // Point to the beginning of the buffer
 
@@ -460,11 +371,9 @@ int main(int argc, char *argv[])
     unsigned short *opCode = (unsigned short *)bpt;
     *opCode = htons((operationMode == 'r') ? TFTP_RRQ : TFTP_WRQ); // Set opcode for RRQ or WRQ
     bpt += 2;                                                      // Move pointer right by 2 bytes
-    // printf("%p %d\n", bpt, bpt-buffer);
-    // Append the filename
+
     strcpy(bpt, filename);
     bpt += strlen(filename) + 1; // Move pointer right by length of filename + 1 for null byte
-    // printf("%p %d\n", bpt, bpt-buffer);
 
     // Append the mode ("octet" or "netascii")
     const char *mode = "octet"; // or "netascii" depending on your needs
@@ -475,14 +384,8 @@ int main(int argc, char *argv[])
     // Calculate the packet length
     size_t packetLen = bpt - buffer;
     printf("The request packet is:\n");
-    for (int i = 0; i < packetLen; i++)
-    {
-        printf("%x", buffer[i]);
-        if (i < packetLen - 1)
-            printf(",");
-        else
-            printf("\n");
-    }
+
+    printBuffer(buffer, packetLen);
 
     printf("Processing tftp request...\n");
     // Send the request packet to the server
@@ -491,15 +394,6 @@ int main(int argc, char *argv[])
         perror("Failed to send request");
         exit(5);
     }
-
-    /*
-     * TODO: process the file transfer
-     */
-
-    /*
-     * TODO: Don't forget to close any file that was opened for read/write, close the socket, free any
-     * dynamically allocated memory, and necessary clean up.
-     */
 
     if(operationMode == 'w'){
         handleWRQ(sockfd, serv_addr, filePtr);

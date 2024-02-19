@@ -15,87 +15,12 @@
 #include <fstream>
 
 using namespace std;
-#define SERV_UDP_PORT 61125
-#define BUFFER_SIZE 1024 // Adjust based on TFTP specifications
-#define DATA_PACKET_SIZE 512
+// #define SERV_UDP_PORT 61125
+// #define BUFFER_SIZE 1024 // Adjust based on TFTP specifications
+
 char *program;
 unsigned int lastBlockSent = 0;
-/*void sendData(int sockfd, struct sockaddr_in *cli_addr, socklen_t cli_len, FILE *file) {
-    unsigned short blockNum = 1;
-    int readBytes;
-    char buffer[BUFFER_SIZE];
-    char fileBuffer[DATA_PACKET_SIZE];
-    ssize_t sentBytes;
 
-    do {
-        readBytes = fread(fileBuffer, 1, DATA_PACKET_SIZE, file);
-        // Prepare DATA packet
-        *((unsigned short *)buffer) = htons(TFTP_DATA); // Opcode for DATA
-        *((unsigned short *)(buffer + 2)) = htons(blockNum); // Block number
-        memcpy(buffer + 4, fileBuffer, readBytes); // File data
-
-        // Send DATA packet
-        sentBytes = sendto(sockfd, buffer, readBytes + 4, 0, (struct sockaddr *)cli_addr, cli_len);
-        if (sentBytes < 0) {
-            perror("sendto failed");
-            break;
-        }
-
-        // Wait for ACK
-        recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)cli_addr, &cli_len);
-        // Ideally, check if the ACK is for the correct block number
-
-        blockNum++;
-    } while (readBytes == DATA_PACKET_SIZE); // If readBytes < DATA_PACKET_SIZE, it was the last packet
-}*/
-void sendData(int sock, const sockaddr_in& clientAddr, const char* data, size_t dataSize, uint16_t blockNumber) {
-    char packet[4 + DATA_PACKET_SIZE]; // Assuming DATA_PACKET_SIZE is defined as 512
-    size_t packetSize = 4 + dataSize; // 4 bytes for header, rest for data
-
-    // Opcode for DATA packet
-    packet[0] = 0;
-    packet[1] = TFTP_DATA; // DATA_OPCODE should be defined as 3
-
-    // Block number
-    packet[2] = blockNumber >> 8;
-    packet[3] = blockNumber & 0xFF;
-
-    // Copy data into packet
-    memcpy(packet + 4, data, dataSize);
-
-    // Send the packet
-    sendto(sock, packet, packetSize, 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
-}
-void sendACK(int sock, const sockaddr_in& clientAddr, uint16_t blockNumber) {
-    char ackPacket[4]; // ACK packet size
-    ackPacket[0] = 0; // Opcode for ACK is 0 4
-    ackPacket[1] = 4; // Opcode for ACK
-    ackPacket[2] = blockNumber >> 8; // Block number high byte
-    ackPacket[3] = blockNumber & 0xFF; // Block number low byte
-    sendto(sock, ackPacket, sizeof(ackPacket), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
-}
-
-void sendError(int sock, const sockaddr_in& clientAddr, int errorCode, const std::string& errorMessage) {
-    std::vector<char> packet;
-    // Construct and send an ERROR packet similarly to sendData
-    // Opcode for ERROR packet
-    packet.push_back(0);
-    packet.push_back(TFTP_ERROR); // ERROR_OPCODE should be defined as 5
-
-    // Error code
-    packet.push_back(errorCode >> 8);
-    packet.push_back(errorCode & 0xFF);
-
-    // Error message
-    for (char c : errorMessage) {
-        packet.push_back(c);
-    }
-    packet.push_back('\0'); // Null-terminated string
-
-    // Send the packet
-    sendto(sock, packet.data(), packet.size(), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
-
-}
 void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileName) {
     string server_folder (SERVER_FOLDER);
     string file_to_read = server_folder + fileName;
@@ -257,23 +182,7 @@ int handleIncomingRequest(int sockfd) {
     for (;;) {
 
         printf("\nWating to receive request\n\n");
-        /*
-         * TODO: Receive the 1st request packet from the client
-         */
 
-        /*
-         * TODO: Parse the request packet. Based on whether it is RRQ/WRQ, open file for read/write.
-         * Create the 1st response packet, send it to the client.
-         */
-
-        /*
-         * TODO: process the file transfer
-         */
-
-        /*
-         * TODO: Don't forget to close any file that was opened for read/write, close the socket, free any
-         * dynamically allocated memory, and necessary clean up.
-         */
         ssize_t recv_len = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&cli_addr, &cli_len);
         if (recv_len < 0) {
             perror("recvfrom failed");
@@ -285,37 +194,15 @@ int handleIncomingRequest(int sockfd) {
         struct sockaddr_in clientAddr = *(struct sockaddr_in*)&cli_addr;
         // Determine packet type (RRQ or WRQ) and handle accordingly
         if (buffer[1] == TFTP_RRQ) {
-            // Handle RRQ: Open file, read data, send DATA packets
-            // Extract the filename from the request packet
-            // Assuming the filename immediately follows the 2-byte opcode, and is null-terminated
-            // char* fileName = buffer + 2;  // Skip the first 2 bytes of opcode
-            // Convert sockaddr to sockaddr_in for address compatibility
-            // struct sockaddr_in* clientAddr = (struct sockaddr_in*)&cli_addr;
 
-            // Call handleRRQ with the extracted filename and client address
             handleRRQ(sockfd, clientAddr, std::string(fileName));
 
         } else if (buffer[1] == TFTP_WRQ) {
 
-            // Handle WRQ: Open file for writing, receive DATA packets, send ACKs
-            // Extract the filename from the request packet
-            // Assuming the filename immediately follows the 2-byte opcode, and is null-terminated
-            // char* fileName = buffer + 2;  // Skip the first 2 bytes of opcode
-
-            // Convert sockaddr to sockaddr_in for address compatibility
-            // struct sockaddr_in clientAddr = *(struct sockaddr_in*)&cli_addr;
-
-            // Call handleWRQ with the extracted filename, client address, and client address length
             handleWRQ(sockfd, clientAddr, cli_len, std::string(fileName));
         }
 
-        // Example: Open file
-        // file = fopen(...);
 
-        // Example: Send first response packet
-        // sendto(sockfd, responseBuffer, responseLen, 0, (struct sockaddr *)&cli_addr, cli_len);
-
-        // Process file transfer...
 
         if (file) {
             fclose(file);
