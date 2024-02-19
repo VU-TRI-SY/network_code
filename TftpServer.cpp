@@ -101,7 +101,7 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
     string file_to_read = server_folder + fileName;
     std::ifstream fileStream(file_to_read, std::ios::binary);
     if (!fileStream) {
-        sendError(sock, clientAddr, 1, "File not found");
+        sendError(sock, clientAddr, 5, "File not found");
         return;
     }
 
@@ -118,7 +118,22 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
         fileStream.read(buffer.data(), DATA_PACKET_SIZE);
         std::streamsize bytesRead = fileStream.gcount();
         // If bytesRead is 0, we've reached the end of the file. This handles empty files as well.
-        if (bytesRead <= 0) break;
+        if (bytesRead <= 0) {
+            char packetBuffer[516]; // DATA packet size: 4 bytes header + 512 bytes data
+            unsigned short *opCode = (unsigned short *)packetBuffer;
+            *opCode = htons(TFTP_ERROR);
+            unsigned short *blockNumber = (unsigned short *)(packetBuffer + 2);
+            *blockNumber = htons(lastBlockSent); // Convert to network byte order
+            char dataBuffer[512];
+            memcpy(packetBuffer + 4, dataBuffer, 0); // Copy data into packet
+
+            // Send the packet
+            if (sendto(sock, packetBuffer, bytesRead + 4, 0, (struct sockaddr *)&clientAddr, sizeof(clientAddr)) < 0)
+            {
+                perror("Failed to send DATA packet");
+            }
+            break;
+        }
 
         // Convert to using raw pointer for the buffer data
         sendData(sock, clientAddr, buffer.data(), bytesRead, blockNumber++);
@@ -204,8 +219,6 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
                 fileStream << str_to_write;
                 sendACK(sock, clientAddr, blockNumber);
                 if (recv_len - 4 < DATA_PACKET_SIZE) { // Last packet
-                    fileStream.close();
-                    return;
                     break;
                 }
                 blockNumber++;
@@ -224,6 +237,8 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
                     break; // Exit the loop or handle as appropriate
                 }
             }
+        }else{
+            break;
         }
     } while (true);
 

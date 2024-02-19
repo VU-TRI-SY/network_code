@@ -127,10 +127,12 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
     while (1)
     {
         int recv_len = recvfrom(sockfd, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr *)&from_addr, &from_len);
+        
         if (recv_len < 0)
         {
             perror("Error receiving ACK");
             // Handle error
+            break;
         }
         else if (recv_len == 4)
         { // Proper ACK packet size
@@ -184,6 +186,7 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
                             {
                                 perror("Error receiving final ACK");
                                 // Handle error
+                                break;
                             }
                             else
                             {
@@ -195,6 +198,7 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
 
                                 if (final_ack_opcode == TFTP_ACK && final_ack_block_number == lastBlockSent)
                                 {
+                                    printf("Received Ack #%d\n", final_ack_block_number);
                                     std::cout << endl;
                                 }
                                 else
@@ -213,12 +217,28 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
                     }
                     else
                     {
+
+                        char packetBuffer[516]; // DATA packet size: 4 bytes header + 512 bytes data
+                        unsigned short *opCode = (unsigned short *)packetBuffer;
+                        *opCode = htons(TFTP_ERROR);
+                        unsigned short *blockNumber = (unsigned short *)(packetBuffer + 2);
+                        *blockNumber = htons(lastBlockSent); // Convert to network byte order
+
+                        memcpy(packetBuffer + 4, dataBuffer, 0); // Copy data into packet
+
+                        // Send the packet
+                        if (sendto(sockfd, packetBuffer, bytesRead + 4, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+                        {
+                            perror("Failed to send DATA packet");
+                        }
                         // No more data to read, transfer is complete
-                        std::cout << "File transfer complete." << std::endl;
                         // Close the file and cleanup
+                        cout << endl;
                         fclose(filePtr);
                         close(sockfd);
+                        exit(0);
                         // Any other necessary cleanup
+
                     }
                 }
             }
@@ -285,7 +305,6 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
                             close(sockfd);
                             fclose(filePtr);
                             exit(0);
-                            break;
                         }
                         blockNumber++;
                     }
@@ -308,8 +327,18 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
                             break; // Exit the loop or handle as appropriate
                         }
                     }
+                }else{
+                    cout << endl;
+                    close(sockfd);
+                    fclose(filePtr);
+                    exit(0);
                 }
             } while (true);
+        }else{
+            cout << endl;
+            close(sockfd);
+            fclose(filePtr);
+            exit(0);
         }
         
     }
