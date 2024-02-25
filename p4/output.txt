@@ -1,0 +1,41 @@
+Enter command (A-allocate, F-free, S-show, R-readScript, C-compact, E-exit):
+A G 15 F
+Allocate 15 bytes for process G using First-Fit
+A K 10 B
+Allocate 10 bytes for process K using Best-Fit
+S
+Show the state of the memory pool:
+GGGGGGGGGGGGGGGKKKKKKKKKK.......................................................
+R data.txt
+Read the script in the file called data.txt and execute each command.
+Allocate 10 bytes for process A using First-Fit
+Allocate 10 bytes for process X using First-Fit
+Allocate 10 bytes for process B using First-Fit
+Allocate 20 bytes for process X using First-Fit
+Allocate 5 bytes for process C using First-Fit
+Insufficient contigous memory to allocate process D of size 5
+S
+Show the state of the memory pool:
+GGGGGGGGGGGGGGGKKKKKKKKKKAAAAAAAAAAXXXXXXXXXXBBBBBBBBBBXXXXXXXXXXXXXXXXXXXXCCCCC
+F X
+Free all allocations owned by process X
+S
+Show the state of the memory pool:
+GGGGGGGGGGGGGGGKKKKKKKKKKAAAAAAAAAA..........BBBBBBBBBB....................CCCCC
+F G
+Free all allocations owned by process G
+S
+Show the state of the memory pool:
+...............KKKKKKKKKKAAAAAAAAAA..........BBBBBBBBBB....................CCCCC
+A D 15 W
+Allocate 15 bytes for process D using Worst-Fit
+S
+Show the state of the memory pool:
+...............KKKKKKKKKKAAAAAAAAAA..........BBBBBBBBBBDDDDDDDDDDDDDDD.....CCCCC
+C
+Compacting memory:
+S
+Show the state of the memory pool:
+KKKKKKKKKKAAAAAAAAAABBBBBBBBBBDDDDDDDDDDDDDDDCCCCC..............................
+E
+Exiting.

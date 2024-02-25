@@ -98,15 +98,27 @@ int worst_fit(int num_byte){
 
 void Allocate(char process, int num_byte, char algorithm){
     int start_index = -1;
+    char alg[255];
+    if(algorithm == 'F' || algorithm == 'f') {
+        start_index = first_fit(num_byte);
+        strcpy(alg, "First-Fit");
+    }
 
-    if(algorithm == 'F' || algorithm == 'f') start_index = first_fit(num_byte);
-    else if(algorithm == 'B' || algorithm == 'b') start_index = best_fit(num_byte);
-    else if(algorithm == 'W' || algorithm == 'w') start_index = worst_fit(num_byte);
+    else if(algorithm == 'B' || algorithm == 'b') {
+        start_index = best_fit(num_byte);
+        strcpy(alg, "Best-Fit");
+    }
+    else if(algorithm == 'W' || algorithm == 'w') {
+        start_index = worst_fit(num_byte);
+        strcpy(alg, "Worst-Fit");
+    }
 
     if(start_index < 0) {
-        printf("Cannot allocate %d bytes for the process %c\n", num_byte, process);
+        printf("Insufficient contigous memory to allocate process %c of size %d\n", process, num_byte);
         return;
     }
+
+    printf("Allocate %d bytes for process %c using %s\n", num_byte, process, alg);
 
     while(num_byte > 0){
         mem[start_index] = process;
@@ -116,12 +128,23 @@ void Allocate(char process, int num_byte, char algorithm){
 }
 
 void Free(char process){
+    int check = 0;
     for(int i = 0; i < MEMSIZE; i++){
-        if(mem[i] == process) mem[i] = '.';
+        if(mem[i] == process) {
+            mem[i] = '.';
+            check = 1;
+        }
+    }
+
+    if(check){
+        printf("Free all allocations owned by process %c\n", process);
+    }else{
+        printf("Process %c does not exist in the memory\n", process);
     }
 }
 
 void Show(){
+    printf("Show the state of the memory pool:\n");
     for(int i = 0; i < MEMSIZE; i++){
         printf("%c", mem[i]);
     }
@@ -142,10 +165,11 @@ void Read(char* file_name){
     
     char str[255];
     while(!feof(fptr)){
+        str[0] = '\0';
         bool break_loop = false;
         fgets(str, 255, fptr);
         if(strlen(str) == 0) break;
-
+        if(str[0] == '\n' || str[0] == '\0') break;
         char *token;
         
         token = strtok(str, " ");
@@ -173,6 +197,10 @@ void Read(char* file_name){
             Show();
             break;
         case 'R':
+            token = strtok(NULL, " "); //take the file name
+            token[strlen(token)-1] = '\0';
+            printf("Read the script in the file called %s and execute each command.\n", token);
+            Read(token); //navigate to read some command from a file 
             break;
         case 'C':
             Compact();
@@ -193,20 +221,37 @@ void Read(char* file_name){
 }
 
 void Compact(){
+    printf("Compacting memory:\n");
+    int i = 0;
+    while(true){
+        //move i to the head of empty space
+        //then move j to the head of allocated mem
+        //shift left that allocated mem pointed by j (swap mem[i], mem[j])
+        //repeate 3 steps above 
 
+        while(i < MEMSIZE && mem[i] != '.') i++;
+        if(i >= MEMSIZE) break;
+        int j = i;
+        while(j < MEMSIZE && mem[j] == '.') j++;
+        if(j >= MEMSIZE) break;
+        //shift left this allocated memory
+        while(j < MEMSIZE && mem[j] != '.'){
+            char temp = mem[i];
+            mem[i] = mem[j];
+            mem[j] = temp;
+            i++;
+            j++;
+        }
+    }
 }
 
 void Exit(){
+    printf("Exiting.\n");
     exit(0);
 }
 
-int main(int argc, char** argv){
-    ResetMem();
-    if(argc == 1){
-        Read(NULL);
-    }else if(argc == 3){
-        if((strcmp(argv[1], "R") == 0 || strcmp(argv[1], "r") == 0)){
-            Read(argv[2]);
-        }
-    }
+int main(){
+    ResetMem(); //set empty mem by setting all chars to '.'
+    printf("Enter command (A-allocate, F-free, S-show, R-readScript, C-compact, E-exit):\n");
+    Read(NULL); //read command from stdin
 }
