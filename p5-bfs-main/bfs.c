@@ -3,7 +3,7 @@
 // ============================================================================
 
 #include "bfs.h"
-
+OFTE g_oft[NUMOFTENTRIES];
 // ============================================================================
 // Allocate a free disk block for the file whose Inode number is 'inum' and
 // assign it to FBN 'fbn' in the file's Inode.  On success, return the DBN

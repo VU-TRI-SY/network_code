@@ -88,7 +88,7 @@ i32 fsRead(i32 fd, i32 numb, void* buf) {
   // Insert your code here
   // ++++++++++++++++++++++++
   
-  //convert fd to inum
+  // convert fd to inum
   i32 inum = bfsFdToInum(fd);
   i32 bytesRead = numb;
   //take current woking position on file 'fd'
@@ -100,20 +100,23 @@ i32 fsRead(i32 fd, i32 numb, void* buf) {
   //take the file size and compute the max fbn and check the validation of fbnStart and fbnEnd
   i32 fileSize = bfsGetSize(inum); 
 
-  if(currentCurs >= fileSize) {
-    FATAL(ENYI);
-    return 0;
-  }
+  // if(currentCurs >= fileSize) {
+  //   FATAL(ENYI);
+  //   return 0;
+  // }
 
-  i32 maxFbn = (fileSize / BYTESPERBLOCK) + (fileSize % BYTESPERBLOCK == 0) ? 0 : 1;
+  i32 numberOfBlocks = (fileSize / BYTESPERBLOCK);
+  if(fileSize % BYTESPERBLOCK != 0) numberOfBlocks++;
+
   // if filesize mode BYTESPERBLOCK = 0 --> return 0, else return 1
   // condition ? value_for_true : value_for_false;
   // compute the number of read blocks
   // fbnEnd = min(fbnEnd, maxFbn);
-  if(fbnEnd > maxFbn){
-    fbnEnd = maxFbn;
+  if(fbnEnd >= numberOfBlocks){
+    fbnEnd = numberOfBlocks-1;
     bytesRead = fileSize - currentCurs;
   }
+  
   i32 totalBlocks = fbnEnd - fbnStart + 1;
   //create an array of read bytes
   i8 readBuf[totalBlocks * BYTESPERBLOCK];
@@ -131,6 +134,35 @@ i32 fsRead(i32 fd, i32 numb, void* buf) {
   memcpy(buf, readBuf + internalOffset, bytesRead);
   fsSeek(fd, bytesRead, SEEK_CUR); //move a distance from current position
   return bytesRead;
+
+  //   i32 inum = bfsFdToInum(fd);             // inum from fd
+  // i32 currentCursor = bfsTell(fd);              // current cursor position
+	// i32 startFbn = currentCursor/ BYTESPERBLOCK;  // file's starting fbn
+	// i32 endFbn = (currentCursor + numb) / BYTESPERBLOCK;   // file's last fbn
+  // i32 bytesRead = numb;                   // bytes that should be read
+  // i32 fileSize = bfsGetSize(inum);
+  // // if 'numb' hits EOF, calculate end position
+  // if (currentCursor + numb > fileSize){
+	//   bytesRead = fileSize - currentCursor;
+	// 	endFbn = (currentCursor + bytesRead) / BYTESPERBLOCK;
+	// }
+
+	// // allocate read buffer, totalBlocks * 512 bytes long
+	// i8 totalBlocks = endFbn - startFbn + 1;
+	// i8 readBuf[(totalBlocks)* BYTESPERBLOCK];
+  // i8 tempBuf[BYTESPERBLOCK];
+  // i32 offset = currentCursor % BYTESPERBLOCK;
+  // i32 bufferOffset = 0;
+  // // read the DBN that holds the FBN into readBuf
+  // for (i32 i = startFbn; i <= endFbn; i++){
+  //   bfsRead(inum, i, tempBuf);
+  //   memcpy(readBuf + bufferOffset, tempBuf, BYTESPERBLOCK);
+	// 	bufferOffset += BYTESPERBLOCK;
+	// }
+	// // move to buf and return bytes read
+	// memcpy(buf, readBuf + offset, bytesRead);
+	// fsSeek(fd, bytesRead, SEEK_CUR);
+	// return bytesRead;   
 }
 
 
