@@ -18,11 +18,6 @@
 #include "TftpOpcode.h"
 #include "TftpCommon.cpp"
 using namespace std;
-// #define SERV_UDP_PORT 61125
-// #define SERV_HOST_ADDR "127.0.0.1"
-// #define BUFFER_SIZE 1024 
-// #define DATA_PACKET_SIZE 512
-
 /* A pointer to the name of this program for error reporting.      */
 char *program;
 unsigned int lastBlockSent = 0;

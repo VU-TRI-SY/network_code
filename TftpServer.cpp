@@ -15,8 +15,7 @@
 #include <fstream>
 
 using namespace std;
-// #define SERV_UDP_PORT 61125
-// #define BUFFER_SIZE 1024 // Adjust based on TFTP specifications
+
 
 char *program;
 unsigned int lastBlockSent = 0;
