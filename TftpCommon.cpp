@@ -52,24 +52,22 @@ static void sendACK(int sock, const sockaddr_in& clientAddr, uint16_t blockNumbe
     ackPacket[3] = blockNumber & 0xFF; // Block number low byte
     sendto(sock, ackPacket, sizeof(ackPacket), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
 }
-static void sendError(int sock, const sockaddr_in& clientAddr, int errorCode, const std::string& errorMessage) {
+static void sendError(int sock, const sockaddr_in& clientAddr, int errorCode, const char* errorMessage) {
     std::vector<char> packet;
     // Construct and send an ERROR packet similarly to sendData
     // Opcode for ERROR packet
-    packet.push_back(0);
-    packet.push_back(TFTP_ERROR); // ERROR_OPCODE should be defined as 5
+    packet.push_back((TFTP_ERROR >> 8) & 0xFF);
+    packet.push_back(TFTP_ERROR & 0xFF);
 
-    // Error code
-    packet.push_back(errorCode >> 8);
+    // Add error code to the packet 
+    packet.push_back((errorCode >> 8) & 0xFF);
     packet.push_back(errorCode & 0xFF);
-
-    // Error message
-    for (char c : errorMessage) {
-        packet.push_back(c);
+    cout << errorMessage << endl;
+    while (*errorMessage != '\0') {
+        packet.push_back(*errorMessage++);
     }
-    packet.push_back('\0'); // Null-terminated string
-
-    // Send the packet
+    // Add a null terminator to the end of the message
+    packet.push_back('\0');
     sendto(sock, packet.data(), packet.size(), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
 }
 
@@ -77,12 +75,6 @@ static void sendError(int sock, const sockaddr_in& clientAddr, int errorCode, co
 static int retryCount = 0;
 
 // Helper function to print the first len bytes of the buffer in Hex
-static void printBuffer(const char * buffer, unsigned int len) {
-    for(int i = 0; i < len; i++) {
-        printf("%x,", buffer[i]);
-    }
-    printf("\n");
-}
 
 // increment retry count when timeout occurs. 
 static void handleTimeout(int signum ){

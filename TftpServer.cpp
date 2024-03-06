@@ -9,13 +9,13 @@
 #include <netinet/in.h>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 #include <unistd.h>
 #include "TftpCommon.cpp"
-
-//#define SERV_UDP_PORT 61125
+#include <fstream>
 
 using namespace std;
-
+static const int MAX_RETRY = 10;
 
 char *program;
 unsigned int lastBlockSent = 0;
@@ -25,190 +25,143 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
     string file_to_read = server_folder + fileName;
     std::ifstream fileStream(file_to_read, std::ios::binary);
     if (!fileStream) {
-        sendError(sock, clientAddr, 1, "File not found");
+        sendError(sock, clientAddr, TFTP_ERROR_FILE_NOT_FOUND, "File not found");
         return;
     }
 
     sendACK(sock, clientAddr, 0); //send ack for successfull file name
     // std::vector<char> buffer(DATA_PACKET_SIZE);
+    int result = registerTimeoutHandler();
+    if (result < 0) {
+        cerr << "Failed to register timeout handler" << endl;
+        return;
+    }
 
     uint16_t blockNumber = 1;
-
-    while (fileStream) {
+    bool lastBlock = false;
+    while (lastBlock == false) {
         std::vector<char> buffer(DATA_PACKET_SIZE); //move to this line
         /*if the buffer has fixed size 512 and the last block has size < 512 (e.g. 182) then it 
         will store the last block for the first 182 bytes and the other bytes (512-182) still 
         contain the data of the last time read before*/
         fileStream.read(buffer.data(), DATA_PACKET_SIZE);
         std::streamsize bytesRead = fileStream.gcount();
-        // If bytesRead is 0, we've reached the end of the file. This handles empty files as well.
-        if (bytesRead <= 0) {
-            char packetBuffer[516]; // DATA packet size: 4 bytes header + 512 bytes data
-            unsigned short *opCode = (unsigned short *)packetBuffer;
-            *opCode = htons(TFTP_ERROR);
-            unsigned short *blockNumber = (unsigned short *)(packetBuffer + 2);
-            *blockNumber = htons(lastBlockSent); // Convert to network byte order
-            char dataBuffer[512];
-            memcpy(packetBuffer + 4, dataBuffer, 0); // Copy data into packet
+        lastBlock = (bytesRead < 512);
 
-            // Send the packet
-            if (sendto(sock, packetBuffer, bytesRead + 4, 0, (struct sockaddr *)&clientAddr, sizeof(clientAddr)) < 0)
-            {
-                perror("Failed to send DATA packet");
-            }
-            break;
-        }
+        // sendData(sock, clientAddr, buffer.data(), bytesRead, blockNumber++);
+    
+        while(true){
+            unsigned short ack_opcode, ack_block_number;
+            char ack_buffer[4];
+            struct sockaddr_in from_addr = clientAddr;
+            socklen_t from_len = sizeof(from_addr);
+            alarm(1);
+            sendData(sock, clientAddr, buffer.data(), bytesRead, blockNumber);
+            int recv_len = recvfrom(sock, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr *)&from_addr, &from_len);
+            alarm(0);
 
-        // Convert to using raw pointer for the buffer data
-        sendData(sock, clientAddr, buffer.data(), bytesRead, blockNumber++);
+            this_thread::sleep_for(chrono::milliseconds(200));
+            
 
-        
-        // Here you should wait for an ACK for the blockNumber you've just sent
-        // If ACK is not received, resend the data or handle error accordingly
+            if (recv_len > 0) { // Proper ACK packet size
+                // Extract opcode
+                memcpy(&ack_opcode, ack_buffer, 2);
+                ack_opcode = ntohs(ack_opcode);
 
-        unsigned short ack_opcode, ack_block_number;
-        char ack_buffer[4];
-        struct sockaddr_in from_addr = clientAddr;
-        socklen_t from_len = sizeof(from_addr);
-        int recv_len = recvfrom(sock, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr *)&from_addr, &from_len);
-        if (recv_len < 0)
-        {
-            perror("Error receiving ACK");
-            // Handle error
-            // break;
-        }
-        else if (recv_len == 4)
-        { // Proper ACK packet size
-            // Extract opcode
-            memcpy(&ack_opcode, ack_buffer, 2);
-            ack_opcode = ntohs(ack_opcode);
-
-            // Extract block number
-            memcpy(&ack_block_number, ack_buffer + 2, 2);
-            ack_block_number = ntohs(ack_block_number);
-            if (ack_opcode == TFTP_ACK)
-            {
-                // std::cout << "Received ACK for block " << ack_block_number << std::endl;
-                printf("Received Ack #%d\n", ack_block_number);
-                // Variable to track the last block number sent
-                size_t fileSize = 0;  // Variable to track the file size if necessary
-                size_t bytesRead = 0; // Variable to track the number of bytes read from the file for the last DATA packet
-                // Check if this is the ACK for the last block sent
-                if (ack_block_number == lastBlockSent){
-                    lastBlockSent++;
-                    // break;
+                // Extract block number
+                memcpy(&ack_block_number, ack_buffer + 2, 2);
+                ack_block_number = ntohs(ack_block_number);
+                // if (ack_opcode == TFTP_ACK && ack_block_number == blockNumber)
+                if (ack_block_number == blockNumber)
+                {
+                    // std::cout << "Received ACK for block " << ack_block_number << std::endl;
+                    printf("Received Ack #%d\n", ack_block_number);
+                    retryCount = 0;
+                    blockNumber++;
+                    break;
                 }
+            }else if(errno == EINTR){
+                if (retryCount > MAX_RETRY) {
+                    cerr << "Max retransmission reached. Aborting transfer." << endl;
+                    fileStream.close();
+                    return;
+                }
+
+                cout << "Retransmitting #" << blockNumber << endl;
+                // Retransmit the packet
+                sendData(sock, clientAddr, buffer.data(), bytesRead, blockNumber);
+            } else{
+                cerr << "recvfrom error: " << strerror(errno) << endl;
+                fileStream.close();
+                return;
             }
         }
     }
-
+    alarm(0);
     fileStream.close();
 }
 
-// helper function for checking directory is non-writable
-bool isDirectoryWritable(const char* dirPath) {
-    // Check if we have write access to the directory
-    if (access(dirPath, W_OK) == 0) {
-        return true; // Directory is writable
-    } else {
-        return false; // Directory is not writable
-    }
-}
 
-void checkRequestPacketFormat(const char* packet, size_t packetSize) {
-    // Example check for RRQ/WRQ packet format: Opcode (2 bytes) + Filename + 0 byte + Mode + 0 byte
-    int opcode = ntohs(*(uint16_t*)packet); // Assuming packet is at least 2 bytes and in network byte order
-    
-    // Verify opcode is for RRQ (1) or WRQ (2)
-    if (opcode != 1 && opcode != 2) {
-        throw std::invalid_argument("Invalid opcode in TFTP request");
-    }
-    
-    // Verify presence of filename and mode with terminating 0 bytes
-    const char* ptr = packet + 2; // Skip opcode
-    const char* end = packet + packetSize;
-    const char* firstZeroByte = std::find(ptr, end, 0);
-    const char* secondZeroByte = std::find(firstZeroByte + 1, end, 0);
-    
-    if (firstZeroByte == end || secondZeroByte == end) {
-        throw std::invalid_argument("Malformed TFTP request: missing fields");
-    }
-    
-    // Additional checks can include validating the mode string (e.g., "netascii" or "octet")
-}
+
 void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::string& fileName) {
     string server_folder (SERVER_FOLDER);
     string file_to_write = server_folder + fileName;
-    std::ofstream fileStream(file_to_write);
+    ifstream testStream(file_to_write, ios::binary);
+    if(testStream.good()){
+        //error:  TFTP_ERROR_FILE_ALREADY_EXISTS
+        cerr << "Error: File already exists!" << endl;
+        sendError(sock, clientAddr, TFTP_ERROR_FILE_ALREADY_EXISTS, "File already exists");
+        testStream.close();
+        return; //stop function 
+    }
     
+    std::ofstream fileStream(file_to_write); //open file to write
     if (!fileStream.is_open()) {
         cout <<"ERR\n";
-        sendError(sock, clientAddr, 2, "Could not open file for writing");
-        return;
-    }
-    
-    if (!isDirectoryWritable(SERVER_FOLDER)) {
-        sendError(sock, clientAddr, 4, "Illegal TFTP operation: Attempt to write a file in a non-writable directory");
+        sendError(sock, clientAddr, TFTP_ERROR_INVALID_ARGUMENT_COUNT, "Could not open file");
         return;
     }
 
-    try {
-        checkRequestPacketFormat(requestPacket, packetSize);
-        // Proceed with request handling
-    } catch (const std::invalid_argument& e) {
-        // Handle malformed request, for example by sending an error packet to the client
-        sendError(sock, clientAddr, 4, e.what());
+    int result = registerTimeoutHandler();
+    if (result < 0) {
+        cerr << "Failed to register timeout handler" << endl;
         return;
     }
-
-    //check if the file is already exists before opening it for writing
-    std::ifstream test(file_to_write);
-    if (test.good()) {
-        // Error code 6 for File Already Exists
-        sendError(sock, clientAddr, 6, "File already exists");
-        test.close();
-        return;
-    }
-
-    // Assuming mode is a string containing the mode from the request
-    std::string mode = "netascii"; // This should actually come from the request
-
-    // Check if mode is neither "netascii" nor "octet"
-    if (mode != "netascii" && mode != "octet") {
-        sendError(sock, clientAddr, 4, "Illegal TFTP operation: Unsupported mode");
-        return;
-    }
-
-
 
     // Send ACK for WRQ (block number 0)
     sendACK(sock, clientAddr, 0);
 
     char buffer[BUFFER_SIZE];
     int blockNumber = 1;
+    int count = retryCount;
     ssize_t recv_len;
 
-    do {
+    while(true) {
+        alarm(1);
         recv_len = recvfrom(sock, buffer, BUFFER_SIZE, 0, (struct sockaddr*)&clientAddr, &cli_len);
-        if (recv_len < 4) { // A valid DATA packet must be at least 4 bytes (opcode + block number)
-            sendError(sock, clientAddr, 0, "Invalid packet");
-            cout << "recv len < 4\n";
-            break;
-        }
+        alarm(0);
+        // if (recv_len < 0) { // A valid DATA packet must be at least 4 bytes (opcode + block number)
+        //     sendError(sock, clientAddr, TFTP_ERROR_INVALID_ARGUMENT_COUNT, "Invalid packet");
+        //     cout << "recv len < 4\n";
+        //     break;
+        // }
 
-        if (buffer[1] == 3) { // DATA opcode is 3
+        if (recv_len >= 4 && buffer[1] == TFTP_DATA) { // DATA opcode is 3
             int receivedBlockNumber = (buffer[2] << 8) | (unsigned char)buffer[3];
-            printf("Reveived block #%d\n", receivedBlockNumber);
             if (receivedBlockNumber == blockNumber) {
+                printf("Reveived block #%d\n", receivedBlockNumber);
                 string str_to_write = "";
                 // fileStream.write(buffer + 2, recv_len - 2);
                 for(int i = 4; i <= recv_len-1; i++) str_to_write += buffer[i];
-                fileStream << str_to_write;
-                sendACK(sock, clientAddr, blockNumber);
-                if (recv_len - 4 < DATA_PACKET_SIZE) { // Last packet
+
+                fileStream << str_to_write; //write data block to file
+
+                sendACK(sock, clientAddr, receivedBlockNumber);
+                blockNumber++;
+                retryCount = 0;
+                if (recv_len < DATA_PACKET_SIZE + 4) { // Last packet
                     break;
                 }
-                blockNumber++;
             } else {
                 // Block number mismatch, handle as needed
                 // If the block number is less than expected, it might be a duplicate
@@ -224,10 +177,17 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
                     break; // Exit the loop or handle as appropriate
                 }
             }
-        }else{
-            break;
+        }else if(errno == EINTR){
+            if (retryCount > MAX_RETRY) {
+                cerr << "Max retransmission reached. Transfer failed." << endl;
+                fileStream.close();
+                return;
+            }
+
+            sendACK(sock, clientAddr, blockNumber);
+            cout << "Retransmitting ACK #" << blockNumber << endl;
         }
-    } while (true);
+    };
 
     fileStream.close();
 }
@@ -242,9 +202,7 @@ int handleIncomingRequest(int sockfd) {
     char buffer[BUFFER_SIZE];
     FILE *file = nullptr;
     for (;;) {
-
         printf("\nWating to receive request\n\n");
-
         ssize_t recv_len = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&cli_addr, &cli_len);
         if (recv_len < 0) {
             perror("recvfrom failed");

@@ -195,6 +195,8 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
                 // // fileStream.write(buffer + 2, recv_len - 2);
                 for (int i = 4; i <= recv_len - 1; i++)
                     err_msg += ack_buffer[i];
+                cout << "Error client: " << err_msg << endl;
+                
                 cout << "Received TFTP Error Packet. Error code " << errCode << ". Error Msg: " << err_msg << endl;
                 close(sockfd);
                 fclose(filePtr);
@@ -232,7 +234,8 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
             size_t recv_len;
 
             //infinite loop to receive data blocks from server
-            do
+            bool lastBlock = false;
+            while(lastBlock == false)
             {
                 //receive data from server
                 recv_len = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
@@ -259,14 +262,8 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
                         fwrite(buffer+4, sizeof(char), recv_len-4, filePtr);
                         fseek(filePtr, recv_len-4, SEEK_SET);
                         sendACK(sockfd, from_addr, blockNumber);
-                        if (recv_len - 4 < DATA_PACKET_SIZE){ // Last packet
-                            // fileStream.close();
-                            cout << endl;
-                            close(sockfd);
-                            fclose(filePtr);
-                            exit(0);
-                        }
                         blockNumber++;
+                        if(recv_len < 516) lastBlock = true;
                     }
                     else
                     {
@@ -303,12 +300,16 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
                     fclose(filePtr);
                     exit(0);
                 }
-            } while (true);
+            };
+            close(sockfd);
+            fclose(filePtr);
+            // exit(0);
+
         }else{ //fail for sending the first request
             cout << endl;
             close(sockfd);
             fclose(filePtr);
-            exit(0);
+            // exit(0);
         }
     }
 
