@@ -176,6 +176,7 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
                         if (sendto(sockfd, packetBuffer, bytesRead + 4, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
                         {
                             perror("Failed to send DATA packet");
+                            exit(1);
                         }
 
                         this_thread::sleep_for(chrono::milliseconds(400));
@@ -216,6 +217,7 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
     if (recv_len < 0)
     {
         perror("Error receiving ACK");
+        exit(1);
         // Handle error
     }
     else if (recv_len == 4)
@@ -304,12 +306,21 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
             close(sockfd);
             fclose(filePtr);
             // exit(0);
-
-        }else{ //fail for sending the first request
-            cout << endl;
+        }else if(ack_opcode == TFTP_ERROR){
+            int errCode = (ack_buffer[2] << 8) | (unsigned char)ack_buffer[3];
+            string err_msg = "";
+            // // fileStream.write(buffer + 2, recv_len - 2);
+            for (int i = 4; i <= recv_len - 1; i++)
+                err_msg += ack_buffer[i];
+            cout << "Received TFTP Error Packet. Error code " << errCode << ". Error Msg: " << err_msg << endl;
             close(sockfd);
             fclose(filePtr);
-            // exit(0);
+            exit(1);
+        } else{
+            cerr << "Unexpected opcode received." << endl;
+            close(sockfd);
+            fclose(filePtr);
+            exit(0);
         }
     }
 
@@ -387,7 +398,7 @@ int main(int argc, char *argv[])
     {
         // Invalid operation mode
         std::cerr << "Invalid operation mode: " << operationMode << ". Use 'r' for read or 'w' for write." << std::endl;
-        exit(4);
+        exit(1);
     }
 
     char buffer[MAX_PACKET_LEN];
@@ -418,7 +429,7 @@ int main(int argc, char *argv[])
     if (sendto(sockfd, buffer, packetLen, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
     {
         perror("Failed to send request");
-        exit(5);
+        exit(1);
     }
 
     if(operationMode == 'w'){

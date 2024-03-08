@@ -266,7 +266,7 @@ int main(int argc, char *argv[]) {
     // Bind. Associate the socket to serv_addr
     if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
         perror("Error on binding");
-        exit(2);
+        exit(1);
     }
     //dg_echo(sockfd);
     handleIncomingRequest(sockfd);
