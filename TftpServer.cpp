@@ -29,7 +29,7 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
         return;
     }
 
-    sendACK(sock, clientAddr, 0); //send ack for successfull file name
+    // sendACK(sock, clientAddr, 0); //send ack for successfull file name
     // std::vector<char> buffer(DATA_PACKET_SIZE);
     int result = registerTimeoutHandler();
     if (result < 0) {
@@ -41,9 +41,6 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
     bool lastBlock = false;
     while (lastBlock == false) {
         std::vector<char> buffer(DATA_PACKET_SIZE); //move to this line
-        /*if the buffer has fixed size 512 and the last block has size < 512 (e.g. 182) then it 
-        will store the last block for the first 182 bytes and the other bytes (512-182) still 
-        contain the data of the last time read before*/
         fileStream.read(buffer.data(), DATA_PACKET_SIZE);
         std::streamsize bytesRead = fileStream.gcount();
         lastBlock = (bytesRead < 512);
@@ -59,6 +56,7 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
             sendData(sock, clientAddr, buffer.data(), bytesRead, blockNumber);
             int recv_len = recvfrom(sock, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr *)&from_addr, &from_len);
             alarm(0);
+            this_thread::sleep_for(chrono::milliseconds(400));
 
             if (recv_len > 0) { // Proper ACK packet size
                 // Extract opcode
@@ -109,7 +107,7 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
         return; //stop function 
     }
     
-    std::ofstream fileStream(file_to_write); //open file to write
+    std::ofstream fileStream(file_to_write, ios::out | ios::binary); //open file to write
     if (!fileStream.is_open()) {
         sendError(sock, clientAddr, TFTP_ERROR_INVALID_ARGUMENT_COUNT, "Could not open file");
         return;
@@ -127,9 +125,10 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
     char buffer[BUFFER_SIZE];
     int blockNumber = 1;
     int count = retryCount;
-    ssize_t recv_len;
+    size_t recv_len;
 
     while(true) {
+        memset(buffer, 0, sizeof(buffer));
         alarm(1);
         recv_len = recvfrom(sock, buffer, BUFFER_SIZE, 0, (struct sockaddr*)&clientAddr, &cli_len);
         alarm(0);

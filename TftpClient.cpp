@@ -27,13 +27,13 @@ void exitProgram(int sockfd, FILE* filePtr, int exit_code){
     exit(exit_code);
 }
 
-int receiveACK(int sockfd, sockaddr_in& serv_addr, int expected_block_number){
+int receiveACK(int sockfd, sockaddr_in& serv_addr){
     struct sockaddr_in from_addr = serv_addr;
     socklen_t from_len = sizeof(from_addr);
     unsigned short ack_opcode, ack_block_number;
     char ack_buffer[4]; 
     int recv_len = recvfrom(sockfd, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr *)&from_addr, &from_len);
-    if (recv_len < 4) {
+    if (recv_len < 0) {
         perror("Error receiving ACK");
         return -1;
     } 
@@ -44,9 +44,10 @@ int receiveACK(int sockfd, sockaddr_in& serv_addr, int expected_block_number){
     // Extract block number
     memcpy(&ack_block_number, ack_buffer + 2, 2);
     ack_block_number = ntohs(ack_block_number);
-    if (ack_opcode == TFTP_ACK && ack_block_number == expected_block_number) {
+    if (ack_opcode == TFTP_ACK) {
         return ack_block_number;
     }
+
     if(ack_opcode == TFTP_ERROR){
         int errCode = (ack_buffer[2] << 8) | (unsigned char)ack_buffer[3];
         string err_msg = "";
@@ -95,20 +96,25 @@ bool readNextChunk(FILE *filePtr, char *dataBuffer, size_t *bytesRead)
 void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
     struct sockaddr_in from_addr = serv_addr;
     socklen_t from_len = sizeof(from_addr);
-    int lastBlockSent = 0;
+    
     unsigned short ack_opcode, ack_block_number;
     char ack_buffer[4]; // ACK packets are 4 bytes: 2 bytes for opcode, 2 bytes for block number
 
-    int res = receiveACK(sockfd, serv_addr, lastBlockSent);
+    int res = receiveACK(sockfd, serv_addr);
+    if(res > 0) {
+        cerr << "Error: Initial ACK with block number 0 not received" << endl;
+        exitProgram(sockfd, filePtr, 1);
+    }
+
     if(res < 0) exitProgram(sockfd, filePtr, 1);
     printf("Received Ack #0\n");
 
     bool lastBlock = false;
+    int lastBlockSent = 1;
     size_t bytesRead = 0; // Variable to track the number of bytes read from the file for the last DATA packet
+    char dataBuffer[512];                        // TFTP DATA packet payload size
     while (!lastBlock)
     {
-        char dataBuffer[512];                        // TFTP DATA packet payload size
-        lastBlockSent = (lastBlockSent + 1) % 65536; // inrease lastBlockSent by 1, if lastBlockSent reaches limitation --> reset to 0
         // Read the next chunk of data from the file, If it is, and more data exists, prepare and send the next DATA packet
         if (readNextChunk(filePtr, dataBuffer, &bytesRead))
         {
@@ -125,12 +131,13 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
             // Send the packet
             if (sendto(sockfd, packetBuffer, bytesRead + 4, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
                 perror("Failed to send DATA packet");
-                exitProgram(sockfd, filePtr, 1);
+                // exitProgram(sockfd, filePtr, 1);
+                break;
             }
 
             this_thread::sleep_for(chrono::milliseconds(400));
-            int recv_res = receiveACK(sockfd, serv_addr,lastBlockSent);
-            if(recv_res < 0) exitProgram(sockfd, filePtr, 1);
+            int recv_res = receiveACK(sockfd, serv_addr);
+            if(recv_res < 0) break;
             if(lastBlockSent == recv_res) cout << "Received ACK #" << lastBlockSent << endl;
             else {
                 while(true){
@@ -139,15 +146,17 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
                         exitProgram(sockfd, filePtr, 1);
                     }
                     this_thread::sleep_for(chrono::milliseconds(400));
-                    int recv_res = receiveACK(sockfd, serv_addr,lastBlockSent);
+                    int recv_res = receiveACK(sockfd, serv_addr);
                     if(recv_res < 0) exitProgram(sockfd, filePtr, 1);
                     if(lastBlockSent == recv_res){
                         cout << "Received ACK #" << lastBlockSent << endl;
                         break;
                     }
                 }
+
             }
             if (bytesRead < 512) lastBlock = true;
+            lastBlockSent++;
         }else break;
     }
     exitProgram(sockfd, filePtr, 0);
@@ -156,8 +165,8 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
     struct sockaddr_in from_addr = serv_addr;
     socklen_t from_len = sizeof(from_addr);
     //receive the first ACK for confirming from server 
-    int res = receiveACK(sockfd, serv_addr, 0);
-    if(res < 0) exitProgram(sockfd, filePtr, 1);
+    // int res = receiveACK(sockfd, serv_addr);
+    // if(res != 0) exitProgram(sockfd, filePtr, 1);
 
     char buffer[BUFFER_SIZE];
     int blockNumber = 1;
@@ -326,14 +335,14 @@ int main(int argc, char *argv[])
 
     printBuffer(buffer, packetLen);
 
-    printf("Processing tftp request...\n");
+
     // Send the request packet to the server
     if (sendto(sockfd, buffer, packetLen, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
     {
         perror("Failed to send request");
         exit(1);
     }
-
+    printf("Processing tftp request...\n");
     if(operationMode == 'w'){
         handleWRQ(sockfd, serv_addr, filePtr);
     }else if (operationMode == 'r'){
