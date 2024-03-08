@@ -62,7 +62,6 @@ static void sendError(int sock, const sockaddr_in& clientAddr, int errorCode, co
     // Add error code to the packet 
     packet.push_back((errorCode >> 8) & 0xFF);
     packet.push_back(errorCode & 0xFF);
-    cout << errorMessage << endl;
     while (*errorMessage != '\0') {
         packet.push_back(*errorMessage++);
     }

@@ -21,8 +21,43 @@
 
 /* A pointer to the name of this program for error reporting.      */
 char *program;
-unsigned int lastBlockSent = 0;
+void exitProgram(int sockfd, FILE* filePtr, int exit_code){
+    fclose(filePtr);
+    close(sockfd);
+    exit(exit_code);
+}
 
+int receiveACK(int sockfd, sockaddr_in& serv_addr, int expected_block_number){
+    struct sockaddr_in from_addr = serv_addr;
+    socklen_t from_len = sizeof(from_addr);
+    unsigned short ack_opcode, ack_block_number;
+    char ack_buffer[4]; 
+    int recv_len = recvfrom(sockfd, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr *)&from_addr, &from_len);
+    if (recv_len < 4) {
+        perror("Error receiving ACK");
+        return -1;
+    } 
+
+    memcpy(&ack_opcode, ack_buffer, 2);
+    ack_opcode = ntohs(ack_opcode);
+
+    // Extract block number
+    memcpy(&ack_block_number, ack_buffer + 2, 2);
+    ack_block_number = ntohs(ack_block_number);
+    if (ack_opcode == TFTP_ACK && ack_block_number == expected_block_number) {
+        return ack_block_number;
+    }
+    if(ack_opcode == TFTP_ERROR){
+        int errCode = (ack_buffer[2] << 8) | (unsigned char)ack_buffer[3];
+        string err_msg = "";
+        for (int i = 4; i <= recv_len - 1; i++)
+            err_msg += ack_buffer[i];
+
+        cout << "Received TFTP Error Packet. Error code " << errCode << ". Error Msg: " << err_msg << endl;
+    } else cerr << "Unexpected opcode received." << endl;
+
+    return -1;
+}
 bool readNextChunk(FILE *filePtr, char *dataBuffer, size_t *bytesRead)
 {
     if (!filePtr || !dataBuffer || !bytesRead)
@@ -58,272 +93,139 @@ bool readNextChunk(FILE *filePtr, char *dataBuffer, size_t *bytesRead)
     return false;
 }
 void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
-
     struct sockaddr_in from_addr = serv_addr;
     socklen_t from_len = sizeof(from_addr);
+    int lastBlockSent = 0;
     unsigned short ack_opcode, ack_block_number;
     char ack_buffer[4]; // ACK packets are 4 bytes: 2 bytes for opcode, 2 bytes for block number
 
-    // Receive ACK packet
-    while (1)
+    int res = receiveACK(sockfd, serv_addr, lastBlockSent);
+    if(res < 0) exitProgram(sockfd, filePtr, 1);
+    printf("Received Ack #0\n");
+
+    bool lastBlock = false;
+    size_t bytesRead = 0; // Variable to track the number of bytes read from the file for the last DATA packet
+    while (!lastBlock)
     {
-        int recv_len = recvfrom(sockfd, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr *)&from_addr, &from_len);
-        
-        if (recv_len < 0)
+        char dataBuffer[512];                        // TFTP DATA packet payload size
+        lastBlockSent = (lastBlockSent + 1) % 65536; // inrease lastBlockSent by 1, if lastBlockSent reaches limitation --> reset to 0
+        // Read the next chunk of data from the file, If it is, and more data exists, prepare and send the next DATA packet
+        if (readNextChunk(filePtr, dataBuffer, &bytesRead))
         {
-            perror("Error receiving ACK");
-            close(sockfd);
-            fclose(filePtr);
-            exit(1);
-        }
-        else if (recv_len == 4)
-        { // Proper ACK packet size
-            // Extract opcode
-            memcpy(&ack_opcode, ack_buffer, 2);
-            ack_opcode = ntohs(ack_opcode);
+            // Prepare and send the next DATA packet
+            // Note: Ensure lastBlockSent wraps correctly from 65535 to 0 as per TFTP specification
+            char packetBuffer[516]; // DATA packet size: 4 bytes header + 512 bytes data
+            unsigned short *opCode = (unsigned short *)packetBuffer;
+            *opCode = htons(TFTP_DATA); // DATA opcode is 3
+            unsigned short *blockNumber = (unsigned short *)(packetBuffer + 2);
+            *blockNumber = htons(lastBlockSent); // Convert to network byte order
 
-            // Extract block number
-            memcpy(&ack_block_number, ack_buffer + 2, 2);
-            ack_block_number = ntohs(ack_block_number);
-            if (ack_opcode == TFTP_ACK) {
-                // std::cout << "Received ACK for block " << ack_block_number << std::endl;
-                printf("Received Ack #%d\n", ack_block_number);
-                // Variable to track the last block number sent
-                size_t fileSize = 0;  // Variable to track the file size if necessary
-                size_t bytesRead = 0; // Variable to track the number of bytes read from the file for the last DATA packet
-                // Check if this is the ACK for the last block sent
-                if (ack_block_number == lastBlockSent)
-                {
-                    char dataBuffer[512];                        // TFTP DATA packet payload size
-                    lastBlockSent = (lastBlockSent + 1) % 65536; // inrease lastBlockSent by 1, if lastBlockSent reaches limitation --> reset to 0
-                    // Read the next chunk of data from the file, If it is, and more data exists, prepare and send the next DATA packet
-                    if (readNextChunk(filePtr, dataBuffer, &bytesRead))
-                    {
-                        // Prepare and send the next DATA packet
-                        // Note: Ensure lastBlockSent wraps correctly from 65535 to 0 as per TFTP specification
-                        char packetBuffer[516]; // DATA packet size: 4 bytes header + 512 bytes data
-                        unsigned short *opCode = (unsigned short *)packetBuffer;
-                        *opCode = htons(TFTP_DATA); // DATA opcode is 3
-                        unsigned short *blockNumber = (unsigned short *)(packetBuffer + 2);
-                        *blockNumber = htons(lastBlockSent); // Convert to network byte order
+            memcpy(packetBuffer + 4, dataBuffer, bytesRead); // Copy data into packet
 
-                        memcpy(packetBuffer + 4, dataBuffer, bytesRead); // Copy data into packet
+            // Send the packet
+            if (sendto(sockfd, packetBuffer, bytesRead + 4, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
+                perror("Failed to send DATA packet");
+                exitProgram(sockfd, filePtr, 1);
+            }
 
-                        // Send the packet
-                        if (sendto(sockfd, packetBuffer, bytesRead + 4, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
-                        {
-                            perror("Failed to send DATA packet");
-                            break;
-                        }
-
-                        this_thread::sleep_for(chrono::milliseconds(400));
-
-                        if (bytesRead < 512)
-                        {
-                            // This was the last chunk of the file
-                            // After sending this DATA packet, wait for the final ACK to conclude the transfer
-                            // Wait for the final ACK from the server
-                            unsigned short final_ack_opcode, final_ack_block_number;
-                            char final_ack_buffer[4]; // ACK packets are 4 bytes: 2 bytes for opcode, 2 bytes for block number
-
-                            if (recvfrom(sockfd, final_ack_buffer, sizeof(final_ack_buffer), 0, (struct sockaddr *)&from_addr, &from_len) < 0)
-                            {
-                                perror("Error receiving final ACK");
-                                // Handle error
-                                close(sockfd);
-                                fclose(filePtr);
-                                exit(1);
-                            }
-                            else
-                            {
-                                // Extract opcode and block number from the final ACK
-                                memcpy(&final_ack_opcode, final_ack_buffer, 2);
-                                final_ack_opcode = ntohs(final_ack_opcode);
-                                memcpy(&final_ack_block_number, final_ack_buffer + 2, 2);
-                                final_ack_block_number = ntohs(final_ack_block_number);
-
-                                if (final_ack_opcode == TFTP_ACK && final_ack_block_number == lastBlockSent)
-                                {
-                                    printf("Received Ack #%d\n", final_ack_block_number);
-                                    std::cout << endl;
-                                }
-                                else
-                                {
-                                    std::cerr << "Unexpected packet received while waiting for final ACK." << std::endl;
-                                    cout << endl;
-                                    // Handle unexpected packet
-                                }
-                            }
-                            close(sockfd);
-                            fclose(filePtr);
-                            exit(0); // the last block has size of data < 512 bytes --> exit program
-                        }
-
-                        // If no more data, the transfer is complete
+            this_thread::sleep_for(chrono::milliseconds(400));
+            int recv_res = receiveACK(sockfd, serv_addr,lastBlockSent);
+            if(recv_res < 0) exitProgram(sockfd, filePtr, 1);
+            if(lastBlockSent == recv_res) cout << "Received ACK #" << lastBlockSent << endl;
+            else {
+                while(true){
+                    if (sendto(sockfd, packetBuffer, bytesRead + 4, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
+                        perror("Failed to send DATA packet");
+                        exitProgram(sockfd, filePtr, 1);
                     }
-                    else
-                    {
-
-                        char packetBuffer[516]; // DATA packet size: 4 bytes header + 512 bytes data
-                        unsigned short *opCode = (unsigned short *)packetBuffer;
-                        *opCode = htons(TFTP_ERROR);
-                        unsigned short *blockNumber = (unsigned short *)(packetBuffer + 2);
-                        *blockNumber = htons(lastBlockSent); // Convert to network byte order
-
-                        memcpy(packetBuffer + 4, dataBuffer, 0); // Copy data into packet
-
-                        // Send the packet
-                        if (sendto(sockfd, packetBuffer, bytesRead + 4, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
-                        {
-                            perror("Failed to send DATA packet");
-                            exit(1);
-                        }
-
-                        this_thread::sleep_for(chrono::milliseconds(400));
-                        // No more data to read, transfer is complete
-                        // Close the file and cleanup
-                        cout << endl;
-                        fclose(filePtr);
-                        close(sockfd);
-                        exit(0);
-                        // Any other necessary cleanup
-
+                    this_thread::sleep_for(chrono::milliseconds(400));
+                    int recv_res = receiveACK(sockfd, serv_addr,lastBlockSent);
+                    if(recv_res < 0) exitProgram(sockfd, filePtr, 1);
+                    if(lastBlockSent == recv_res){
+                        cout << "Received ACK #" << lastBlockSent << endl;
+                        break;
                     }
                 }
-            }else if(ack_opcode == TFTP_ERROR){
-                int errCode = (ack_buffer[2] << 8) | (unsigned char)ack_buffer[3];
-                string err_msg = "";
-                // // fileStream.write(buffer + 2, recv_len - 2);
-                for (int i = 4; i <= recv_len - 1; i++)
-                    err_msg += ack_buffer[i];
-                cout << "Error client: " << err_msg << endl;
-                
-                cout << "Received TFTP Error Packet. Error code " << errCode << ". Error Msg: " << err_msg << endl;
-                close(sockfd);
-                fclose(filePtr);
-                exit(1);
             }
-        }
+            if (bytesRead < 512) lastBlock = true;
+        }else break;
     }
+    exitProgram(sockfd, filePtr, 0);
 }
 void handleRRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
     struct sockaddr_in from_addr = serv_addr;
     socklen_t from_len = sizeof(from_addr);
-    unsigned short ack_opcode, ack_block_number;
-    char ack_buffer[4]; 
-
-    int recv_len = recvfrom(sockfd, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr *)&from_addr, &from_len);
     //receive the first ACK for confirming from server 
-    if (recv_len < 0)
+    int res = receiveACK(sockfd, serv_addr, 0);
+    if(res < 0) exitProgram(sockfd, filePtr, 1);
+
+    char buffer[BUFFER_SIZE];
+    int blockNumber = 1;
+    size_t recv_len;
+
+    //infinite loop to receive data blocks from server
+    bool lastBlock = false;
+    while(lastBlock == false)
     {
-        perror("Error receiving ACK");
-        exit(1);
-        // Handle error
-    }
-    else if (recv_len == 4)
-    { // Proper ACK packet size
-        // Extract opcode
-        memcpy(&ack_opcode, ack_buffer, 2);
-        ack_opcode = ntohs(ack_opcode);
+        //receive data from server
+        recv_len = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
+        if (recv_len < 0)
+        { // A valid DATA packet must be at least 4 bytes (opcode + block number)
+            // sendError(sockfd, from_addr, 0, "Invalid packet");
+            perror("Recvfrom failed");
+            exitProgram(sockfd, filePtr, 1);
+        }
 
-        // Extract block number
-        memcpy(&ack_block_number, ack_buffer + 2, 2);
-        ack_block_number = ntohs(ack_block_number);
-        if (ack_opcode == TFTP_ACK && ack_block_number == 0){
-            //server received read request
-            char buffer[BUFFER_SIZE];
-            int blockNumber = 1;
-            size_t recv_len;
-
-            //infinite loop to receive data blocks from server
-            bool lastBlock = false;
-            while(lastBlock == false)
+        if (buffer[1] == TFTP_DATA) { // DATA opcode is 3
+            int receivedBlockNumber = (buffer[2] << 8) | (unsigned char)buffer[3];
+            if (receivedBlockNumber == blockNumber)
             {
-                //receive data from server
-                recv_len = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
-                if (recv_len < 0)
-                { // A valid DATA packet must be at least 4 bytes (opcode + block number)
-                    // sendError(sockfd, from_addr, 0, "Invalid packet");
-                    perror("Recvfrom failed");
-                    close(sockfd);
-                    fclose(filePtr);
-                    exit(1);
-                }
+                printf("Reveived block #%d\n", receivedBlockNumber);
+                string str_to_write = "";
+                // // fileStream.write(buffer + 2, recv_len - 2);
+                for (int i = 4; i <= recv_len - 1; i++)
+                    str_to_write += buffer[i];
 
-                if (buffer[1] == TFTP_DATA) { // DATA opcode is 3
-                    int receivedBlockNumber = (buffer[2] << 8) | (unsigned char)buffer[3];
-                    if (receivedBlockNumber == blockNumber)
-                    {
-                        printf("Reveived block #%d\n", receivedBlockNumber);
-                        string str_to_write = "";
-                        // // fileStream.write(buffer + 2, recv_len - 2);
-                        for (int i = 4; i <= recv_len - 1; i++)
-                            str_to_write += buffer[i];
-
-                        // fileStream << str_to_write;
-                        fwrite(buffer+4, sizeof(char), recv_len-4, filePtr);
-                        fseek(filePtr, recv_len-4, SEEK_SET);
-                        sendACK(sockfd, from_addr, blockNumber);
-                        blockNumber++;
-                        if(recv_len < 516) lastBlock = true;
-                    }
-                    else
-                    {
-                        // Block number mismatch, handle as needed
-                        // If the block number is less than expected, it might be a duplicate
-                        if (receivedBlockNumber < blockNumber)
-                        {
-                            // Resend ACK for the duplicate block to confirm receipt
-                            sendACK(sockfd, from_addr, receivedBlockNumber);
-                        }
-                        else
-                        {
-                            // If the block number is greater than expected, log or handle the error
-                            // This situation should not normally occur in TFTP as it implies out-of-order delivery
-                            std::cerr << "Received out-of-order block number: " << receivedBlockNumber << " expected: " << blockNumber << std::endl;
-                            // Consider sending an error packet to the client and possibly terminating the transfer
-                            sendError(sockfd, from_addr, 0, "Unexpected block number received");
-                            break; // Exit the loop or handle as appropriate
-                        }
-                    }
-                } else if(buffer[1] == TFTP_ERROR){
-                    int errCode = (buffer[2] << 8) | (unsigned char)buffer[3];
-                    string err_msg = "";
-                    // // fileStream.write(buffer + 2, recv_len - 2);
-                    for (int i = 4; i <= recv_len - 1; i++)
-                        err_msg += buffer[i];
-                    cout << "Received TFTP Error Packet. Error code " << errCode << ". Error Msg: " << err_msg << endl;
-                    close(sockfd);
-                    fclose(filePtr);
-                    exit(1);
-                } else{
-                    cerr << "Unexpected opcode received." << endl;
-                    close(sockfd);
-                    fclose(filePtr);
-                    exit(0);
+                // fileStream << str_to_write;
+                fwrite(buffer+4, sizeof(char), recv_len-4, filePtr);
+                fseek(filePtr, recv_len-4, SEEK_SET);
+                sendACK(sockfd, from_addr, blockNumber);
+                blockNumber++;
+                if(recv_len < 516) lastBlock = true;
+            }
+            else
+            {
+                // Block number mismatch, handle as needed
+                // If the block number is less than expected, it might be a duplicate
+                if (receivedBlockNumber < blockNumber)
+                {
+                    // Resend ACK for the duplicate block to confirm receipt
+                    sendACK(sockfd, from_addr, receivedBlockNumber);
                 }
-            };
-            close(sockfd);
-            fclose(filePtr);
-            // exit(0);
-        }else if(ack_opcode == TFTP_ERROR){
-            int errCode = (ack_buffer[2] << 8) | (unsigned char)ack_buffer[3];
+                else
+                {
+                    // If the block number is greater than expected, log or handle the error
+                    // This situation should not normally occur in TFTP as it implies out-of-order delivery
+                    std::cerr << "Received out-of-order block number: " << receivedBlockNumber << " expected: " << blockNumber << std::endl;
+                    // Consider sending an error packet to the client and possibly terminating the transfer
+                    sendError(sockfd, from_addr, 0, "Unexpected block number received");
+                    break; // Exit the loop or handle as appropriate
+                }
+            }
+        } else if(buffer[1] == TFTP_ERROR){
+            int errCode = (buffer[2] << 8) | (unsigned char)buffer[3];
             string err_msg = "";
             // // fileStream.write(buffer + 2, recv_len - 2);
             for (int i = 4; i <= recv_len - 1; i++)
-                err_msg += ack_buffer[i];
+                err_msg += buffer[i];
             cout << "Received TFTP Error Packet. Error code " << errCode << ". Error Msg: " << err_msg << endl;
-            close(sockfd);
-            fclose(filePtr);
-            exit(1);
+            exitProgram(sockfd, filePtr, 1);
         } else{
             cerr << "Unexpected opcode received." << endl;
-            close(sockfd);
-            fclose(filePtr);
-            exit(0);
+            break;
         }
-    }
-
+    };
+    exitProgram(sockfd, filePtr, 0);
 }
 int main(int argc, char *argv[])
 {

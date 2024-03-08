@@ -60,9 +60,6 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
             int recv_len = recvfrom(sock, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr *)&from_addr, &from_len);
             alarm(0);
 
-            this_thread::sleep_for(chrono::milliseconds(200));
-            
-
             if (recv_len > 0) { // Proper ACK packet size
                 // Extract opcode
                 memcpy(&ack_opcode, ack_buffer, 2);
@@ -101,15 +98,12 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
     fileStream.close();
 }
 
-
-
 void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::string& fileName) {
     string server_folder (SERVER_FOLDER);
     string file_to_write = server_folder + fileName;
     ifstream testStream(file_to_write, ios::binary);
     if(testStream.good()){
         //error:  TFTP_ERROR_FILE_ALREADY_EXISTS
-        cerr << "Error: File already exists!" << endl;
         sendError(sock, clientAddr, TFTP_ERROR_FILE_ALREADY_EXISTS, "File already exists");
         testStream.close();
         return; //stop function 
@@ -117,7 +111,6 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
     
     std::ofstream fileStream(file_to_write); //open file to write
     if (!fileStream.is_open()) {
-        cout <<"ERR\n";
         sendError(sock, clientAddr, TFTP_ERROR_INVALID_ARGUMENT_COUNT, "Could not open file");
         return;
     }
@@ -140,11 +133,10 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
         alarm(1);
         recv_len = recvfrom(sock, buffer, BUFFER_SIZE, 0, (struct sockaddr*)&clientAddr, &cli_len);
         alarm(0);
-        // if (recv_len < 0) { // A valid DATA packet must be at least 4 bytes (opcode + block number)
-        //     sendError(sock, clientAddr, TFTP_ERROR_INVALID_ARGUMENT_COUNT, "Invalid packet");
-        //     cout << "recv len < 4\n";
-        //     break;
-        // }
+        if (recv_len < 0) { // A valid DATA packet must be at least 4 bytes (opcode + block number)
+            cerr << "recvfrom error: " << strerror(errno) << endl;
+            break; // Exit on other errors.
+        }
 
         if (recv_len >= 4 && buffer[1] == TFTP_DATA) { // DATA opcode is 3
             int receivedBlockNumber = (buffer[2] << 8) | (unsigned char)buffer[3];
@@ -213,16 +205,8 @@ int handleIncomingRequest(int sockfd) {
         printf("Requested filename is %s\n", fileName);
         struct sockaddr_in clientAddr = *(struct sockaddr_in*)&cli_addr;
         // Determine packet type (RRQ or WRQ) and handle accordingly
-        if (buffer[1] == TFTP_RRQ) {
-
-            handleRRQ(sockfd, clientAddr, std::string(fileName));
-
-        } else if (buffer[1] == TFTP_WRQ) {
-
-            handleWRQ(sockfd, clientAddr, cli_len, std::string(fileName));
-        }
-
-
+        if (buffer[1] == TFTP_RRQ) handleRRQ(sockfd, clientAddr, std::string(fileName));
+        else if (buffer[1] == TFTP_WRQ) handleWRQ(sockfd, clientAddr, cli_len, std::string(fileName));
 
         if (file) {
             fclose(file);
