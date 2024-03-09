@@ -54,6 +54,10 @@ int registerTimeoutHandler() {
 }
 
 void sendFileData(int sockfd, ifstream& fileStream, const sockaddr_in& cli_addr, socklen_t cli_len) {
+    //send ACK to confirm
+    vector<char> ackPacket = createAckPacket(0);
+    sendto(sockfd, ackPacket.data(), ackPacket.size(), 0, (struct sockaddr*)&cli_addr, cli_len);
+    
     int result = registerTimeoutHandler();
     if (result < 0) {
         cerr << "Failed to register timeout handler" << endl;

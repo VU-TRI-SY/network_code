@@ -135,6 +135,13 @@ int main(int argc, char *argv[]) {
 
             // Process received packet
             uint16_t receivedOpcode1 = ntohs(*reinterpret_cast<uint16_t*>(recvBuffer.data()));
+
+            if(receivedOpcode1 == TFTP_ACK){
+                TftpAck ackPacket = parseAckPacket(recvBuffer); 
+                int blockNumber = ackPacket.blockNumber;
+                if(blockNumber == 0) continue;
+            } 
+
             // Check if the response is an error packet 
             if (receivedOpcode1 == TFTP_ERROR) {
                 TftpError errorPacket = parseErrorPacket(recvBuffer);
