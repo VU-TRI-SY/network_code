@@ -17,6 +17,8 @@
 #include "TftpOpcode.h"
 
 using namespace std;
+static const int MAX_RETRY = 10;
+static int retryCount = 0;
 
 struct TftpAck{
     uint16_t opcode;
@@ -38,12 +40,6 @@ struct TftpError{
 // Declare the printBuffer function if needed publicly
 void printBuffer(const char *buffer, unsigned int len);
 
-// Function declarations for creating and parsing packets
-vector<char> createRequestPacket(uint16_t opcode, const string& filename, const string& mode);
-vector<char> createAckPacket(uint16_t blockNumber);
-vector<char> createDataPacket(uint16_t blockNumber, const char* data, size_t dataSize);
-vector<char> createErrorPacket(uint16_t errorCode, const char* errorMsg);
-
 // Struct parsing functions declarations
 TftpAck parseAckPacket(const vector<char>& packet);
 TftpData parseDataPacket(const vector<char>& packet);
@@ -52,5 +48,12 @@ TftpError parseErrorPacket(const vector<char>& packet);
 // File operation functions declarations
 size_t readFileBlock(ifstream& file, char* buffer, size_t bufferSize);
 void writeFileBlock(ofstream& file, const char* data, size_t dataSize);
+void handleTimeout(int signum);
+int registerTimeoutHandler();
 
+//--------------------------------------
+ssize_t sendACK(int sock, const sockaddr_in& clientAddr, uint16_t blockNumber);
+ssize_t sendData(int sock, const sockaddr_in& clientAddr, const char* data, size_t dataSize, uint16_t blockNumber);
+ssize_t sendError(int sock, const sockaddr_in& clientAddr, int errorCode, const char* errorMessage);
+ssize_t sendRequest(int sock, const sockaddr_in& clientAddr, char* packet, int packetLen);
 #endif // TFTP_COMMON_H

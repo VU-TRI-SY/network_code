@@ -10,7 +10,7 @@
 #include <vector> 
 #include <fstream>
 #include "TftpCommon.h"
-
+#include "TftpConstant.h"
 using namespace std;
 
 // Helper function to print the first len bytes of the buffer in Hex
@@ -19,47 +19,6 @@ void printBuffer(const char * buffer, unsigned int len) {
         printf("%x,", buffer[i]);
     }
     printf("\n");
-}
-
-// Function to create an RRQ and WRQ packet 
-vector<char> createRequestPacket(uint16_t opcode, const string& filename, const string& mode) {
-    // Hold the packet data
-    vector<char> packet;
-
-    // Add opcode to the packet 
-    packet.push_back((opcode >> 8) & 0xFF); // High byte of opcode
-    packet.push_back(opcode & 0xFF); // Low byte of opcode 
-
-    // Add filename to the packet 
-    for (char c : filename) {
-        packet.push_back(c);
-    }
-    // Add a null terminator to the end of the filename 
-    packet.push_back('\0');
-
-    // Add mode for the packet 
-    for (char c : mode) {
-        packet.push_back(c);
-    }
-    // ADd a null terminator to the end of the mode 
-    packet.push_back('\0');
-
-    return packet;
-}
-
-// Function to create ACK packet 
-vector<char> createAckPacket(uint16_t blockNumber) {
-    vector<char> packet;
-
-    // Add opcode for ACK
-    packet.push_back((TFTP_ACK >> 8) & 0xFF);
-    packet.push_back(TFTP_ACK & 0xFF);
-
-    // Add block number
-    packet.push_back((blockNumber >> 8) & 0xFF);
-    packet.push_back(blockNumber & 0xFF);
-
-    return packet;
 }
 
 TftpAck parseAckPacket(const vector<char>& packet) {
@@ -79,21 +38,23 @@ TftpAck parseAckPacket(const vector<char>& packet) {
     return ack;
 }
 
-vector<char> createDataPacket(uint16_t blockNumber, const char* data, size_t dataSize) {
-    vector<char> packet;
+TftpError parseErrorPacket(const vector<char>& packet) {
+    TftpError errorPacket;
 
-    // Add opcode to the packet 
-    packet.push_back((TFTP_DATA >> 8) & 0xFF);
-    packet.push_back(TFTP_DATA & 0xFF);
+    // Copy the opcode from the packet to the struct
+    memcpy(&errorPacket.opcode, packet.data(), sizeof(errorPacket.opcode));
+    errorPacket.opcode = ntohs(errorPacket.opcode); // Convert from network byte order to host byte order
 
-    // Add block number to the packet
-    packet.push_back((blockNumber >> 8) & 0xFF);
-    packet.push_back(blockNumber & 0xFF);
+    // Copy the error code from the packet to the struct
+    memcpy(&errorPacket.errorCode, packet.data() + sizeof(errorPacket.opcode), sizeof(errorPacket.errorCode));
+    errorPacket.errorCode = ntohs(errorPacket.errorCode); // Convert from network byte order to host byte order
 
-    // Add data to the packet 
-    packet.insert(packet.end(), data, data + dataSize);
+    // Extract the error message (starts after opcode and error code)
+    const char* startOfMsg = reinterpret_cast<const char*>(packet.data() + 4);
+    strncpy(errorPacket.errorMessage, startOfMsg, sizeof(errorPacket.errorMessage) - 1);
+    errorPacket.errorMessage[sizeof(errorPacket.errorMessage) - 1] = '\0'; // Ensure null-termination
 
-    return packet;
+    return errorPacket;
 }
 
 TftpData parseDataPacket(const vector<char>& packet) {
@@ -115,11 +76,19 @@ TftpData parseDataPacket(const vector<char>& packet) {
     return dataPacket;
 }
 
-// Function to create an ERROR packet
-vector<char> createErrorPacket(uint16_t errorCode, const char* errorMsg) {
-    vector<char> packet;
+ssize_t sendACK(int sock, const sockaddr_in& clientAddr, uint16_t blockNumber){
+    char ackPacket[4]; // ACK packet size
+    ackPacket[0] = 0; // Opcode for ACK is 0 4
+    ackPacket[1] = TFTP_ACK; // Opcode for ACK
+    ackPacket[2] = blockNumber >> 8; // Block number high byte
+    ackPacket[3] = blockNumber & 0xFF; // Block number low byte
+    sendto(sock, ackPacket, sizeof(ackPacket), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
+}
 
-    // Add opcode to the packet
+ssize_t sendError(int sock, const sockaddr_in& clientAddr, int errorCode, const char* errorMessage) {
+    std::vector<char> packet;
+    // Construct and send an ERROR packet similarly to sendData
+    // Opcode for ERROR packet
     packet.push_back((TFTP_ERROR >> 8) & 0xFF);
     packet.push_back(TFTP_ERROR & 0xFF);
 
@@ -127,34 +96,36 @@ vector<char> createErrorPacket(uint16_t errorCode, const char* errorMsg) {
     packet.push_back((errorCode >> 8) & 0xFF);
     packet.push_back(errorCode & 0xFF);
 
-    // Add error message to the packet
-    while (*errorMsg != '\0') {
-        packet.push_back(*errorMsg++);
+    while (*errorMessage != '\0') {
+        packet.push_back(*errorMessage);
+        errorMessage++;
     }
     // Add a null terminator to the end of the message
     packet.push_back('\0');
-
-    return packet;
+    return sendto(sock, packet.data(), packet.size(), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
 }
 
-// Function to parse an ERROR packet
-TftpError parseErrorPacket(const vector<char>& packet) {
-    TftpError errorPacket;
+ssize_t sendData(int sock, const sockaddr_in& clientAddr, const char* data, size_t dataSize, uint16_t blockNumber) {
+    char packet[4 + DATA_PACKET_SIZE]; // Assuming DATA_PACKET_SIZE is defined as 512
+    size_t packetSize = 4 + dataSize; // 4 bytes for header, rest for data
 
-    // Copy the opcode from the packet to the struct
-    memcpy(&errorPacket.opcode, packet.data(), sizeof(errorPacket.opcode));
-    errorPacket.opcode = ntohs(errorPacket.opcode); // Convert from network byte order to host byte order
+    // Opcode for DATA packet
+    packet[0] = 0;
+    packet[1] = TFTP_DATA; // DATA_OPCODE should be defined as 3
 
-    // Copy the error code from the packet to the struct
-    memcpy(&errorPacket.errorCode, packet.data() + sizeof(errorPacket.opcode), sizeof(errorPacket.errorCode));
-    errorPacket.errorCode = ntohs(errorPacket.errorCode); // Convert from network byte order to host byte order
+    // Block number
+    packet[2] = blockNumber >> 8;
+    packet[3] = blockNumber & 0xFF;
 
-    // Extract the error message (starts after opcode and error code)
-    const char* startOfMsg = reinterpret_cast<const char*>(packet.data() + 4);
-    strncpy(errorPacket.errorMessage, startOfMsg, sizeof(errorPacket.errorMessage) - 1);
-    errorPacket.errorMessage[sizeof(errorPacket.errorMessage) - 1] = '\0'; // Ensure null-termination
+    // Copy data into packet
+    memcpy(packet + 4, data, dataSize);
 
-    return errorPacket;
+    // Send the packet
+    return sendto(sock, packet, packetSize, 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
+}
+
+ssize_t sendRequest(int sock, const sockaddr_in& clientAddr, char* packet, int packetLen){
+    return sendto(sock, packet, packetLen, 0, (struct sockaddr *)  &clientAddr, sizeof(clientAddr));
 }
 
 // Function to read a block of data from a file 
@@ -169,3 +140,22 @@ void writeFileBlock(ofstream& file, const char* data, size_t dataSize) {
     file.write(data, dataSize);
 }
 
+// increment retry count when timeout occurs. 
+void handleTimeout(int signum) {
+    retryCount++;
+    printf("timeout occurred! count %d\n", retryCount);
+}
+
+int registerTimeoutHandler() {
+    signal(SIGALRM, handleTimeout);
+
+    /* disable the restart of system call on signal. otherwise the OS will be stuck in
+     * the system call
+     */
+    
+    if( siginterrupt( SIGALRM, 1 ) == -1 ){
+        printf( "invalid sig number.\n" );
+        return -1;
+    }
+    return 0;
+}

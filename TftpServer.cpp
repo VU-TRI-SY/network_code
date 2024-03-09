@@ -12,12 +12,9 @@
 #include "TftpError.h"
 #include "TftpCommon.h"
 
-#define SERV_UDP_PORT 61125
 using namespace std;
-static const int MAX_RETRY = 10;
-int retryCount = 0;
 
-char *program;
+char *program = nullptr;
 
 string extractFileName(const char* buffer, size_t length) {
     // The file name is a null-terminated string starting at buffer.
@@ -33,31 +30,10 @@ string extractMode(const char* buffer, size_t length) {
     return string(mode);
 }
 
-// increment retry count when timeout occurs. 
-void handleTimeout(int signum) {
-    retryCount++;
-    printf("timeout occurred! count %d\n", retryCount);
-}
-
-int registerTimeoutHandler() {
-    signal(SIGALRM, handleTimeout);
-
-    /* disable the restart of system call on signal. otherwise the OS will be stuck in
-     * the system call
-     */
-    
-    if( siginterrupt( SIGALRM, 1 ) == -1 ){
-        printf( "invalid sig number.\n" );
-        return -1;
-    }
-    return 0;
-}
-
 void sendFileData(int sockfd, ifstream& fileStream, const sockaddr_in& cli_addr, socklen_t cli_len) {
     //send ACK to confirm
-    vector<char> ackPacket = createAckPacket(0);
-    sendto(sockfd, ackPacket.data(), ackPacket.size(), 0, (struct sockaddr*)&cli_addr, cli_len);
-    
+    sendACK(sockfd, cli_addr, 0); //init ACK
+
     int result = registerTimeoutHandler();
     if (result < 0) {
         cerr << "Failed to register timeout handler" << endl;
@@ -78,15 +54,11 @@ void sendFileData(int sockfd, ifstream& fileStream, const sockaddr_in& cli_addr,
         size_t bytesRead = fileStream.gcount();
         // If less than 512, it's the last packet
         lastPacket = bytesRead < 512;
-
-        // Create and send DATA packet 
-        vector<char> dataPacket = createDataPacket(blockNumber, fileBuffer, bytesRead);
  
         while (true) {
             // Set timer for 1 second
             alarm(1); 
-            sendto(sockfd, dataPacket.data(), dataPacket.size(), 0, (struct sockaddr*)&cli_addr, cli_len);
-
+            sendData(sockfd, cli_addr, fileBuffer, bytesRead, blockNumber);
             vector<char> ackBuffer(4);
             ssize_t ackLen = recvfrom(sockfd, ackBuffer.data(), ackBuffer.size(), 0, (struct sockaddr*)&cli_addr, &cli_len);
             // After receiving ACK packet successfully, clear timer
@@ -111,8 +83,7 @@ void sendFileData(int sockfd, ifstream& fileStream, const sockaddr_in& cli_addr,
 
                 cout << "Retransmitting #" << blockNumber << endl;
                 // Retransmit the packet
-                sendto(sockfd, dataPacket.data(), dataPacket.size(), 0, (struct sockaddr*)&cli_addr, cli_len);
-
+                sendData(sockfd, cli_addr, fileBuffer, bytesRead, blockNumber);
             } else {
                 cerr << "recvfrom error: " << strerror(errno) << endl;
                 return;
@@ -132,10 +103,9 @@ void receiveFileData(int sockfd, ofstream& fileStream, const sockaddr_in& cli_ad
     }
 
     // Receiving DATA packets and writing to the file.
-    uint16_t blockNumber = 0;
-    // Send first ACK before receiving the real data
-    vector<char> ackPacket = createAckPacket(blockNumber);
-    sendto(sockfd, ackPacket.data(), ackPacket.size(), 0, (struct sockaddr*)&cli_addr, cli_len);
+    sendACK(sockfd, cli_addr, 0);
+
+    uint16_t blockNumber = 1;
     char buffer[MAX_PACKET_LEN];
     int count = retryCount;
 
@@ -152,13 +122,13 @@ void receiveFileData(int sockfd, ofstream& fileStream, const sockaddr_in& cli_ad
             // Extract block number from received data.
             uint16_t receivedBlockNumber = ntohs(*(uint16_t*)(buffer + 2)); 
 
-            if (receivedBlockNumber == blockNumber + 1) {
+            if (receivedBlockNumber == blockNumber) {
                 // If the block number is what we expected, write the data to the file.
                 fileStream.write(buffer + 4, receivedBytes - 4); // Write data, excluding the 4-byte header.
-                blockNumber = receivedBlockNumber;
-                // Prepare and send an ACK for the received block.
-                vector<char> ackPacket = createAckPacket(receivedBlockNumber);
-                sendto(sockfd, ackPacket.data(), ackPacket.size(), 0, (struct sockaddr*)&cli_addr, cli_len);
+                blockNumber++;
+
+                sendACK(sockfd, cli_addr, receivedBlockNumber);
+                
                 // Reset the timeout count after successfully receiving data
                 retryCount = 0;
                 cout << "Received Block #" << receivedBlockNumber << endl;
@@ -176,8 +146,7 @@ void receiveFileData(int sockfd, ofstream& fileStream, const sockaddr_in& cli_ad
             }
 
             // Resend the last ACK 
-            vector<char> ackPacket = createAckPacket(blockNumber);
-            sendto(sockfd, ackPacket.data(), ackPacket.size(), 0, (struct sockaddr*)&cli_addr, cli_len);
+            sendACK(sockfd, cli_addr, blockNumber);
             cout << "Retransmitting ACK #" << blockNumber << endl;
 
         } else if (receivedBytes < 0) {
@@ -190,7 +159,7 @@ void receiveFileData(int sockfd, ofstream& fileStream, const sockaddr_in& cli_ad
 }
 
 int handleIncomingRequest(int sockfd) {
-    struct sockaddr cli_addr;
+    sockaddr_in cli_addr;
     socklen_t cli_len = sizeof(cli_addr);
 
     // Buffer to hold incoming packets
@@ -230,8 +199,7 @@ int handleIncomingRequest(int sockfd) {
                 if (!fileStream) {
                     // Send error pack if can't open
                     cerr << "Error: File not Found!" << endl;
-                    vector<char> errorPacket = createErrorPacket(TFTP_ERROR_FILE_NOT_FOUND, "File not found");
-                    sendto(sockfd, errorPacket.data(), errorPacket.size(), 0, (struct sockaddr*)&cli_addr, cli_len);
+                    sendError(sockfd, cli_addr, TFTP_ERROR_FILE_NOT_FOUND, "File not found");
                 } else {
                     // Send the file data in blocks of 512 bytes
                     sendFileData(sockfd, fileStream, *(struct sockaddr_in*)&cli_addr, cli_len);
@@ -249,8 +217,7 @@ int handleIncomingRequest(int sockfd) {
                 // Check if the file is already exist 
                 if (testStream.good()) {
                     cerr << "Error: File already exists!" << endl;
-                    vector<char> errorPacket = createErrorPacket(TFTP_ERROR_FILE_ALREADY_EXISTS, "File already exists");
-                    sendto(sockfd, errorPacket.data(), errorPacket.size(), 0, (struct sockaddr*)&cli_addr, cli_len);
+                    sendError(sockfd, cli_addr, TFTP_ERROR_FILE_ALREADY_EXISTS, "File already exists");
                     testStream.close();
                     break;
              
@@ -259,8 +226,7 @@ int handleIncomingRequest(int sockfd) {
                     ofstream fileStream(filePath, ios::out | ios::binary);
                     if (!fileStream) {
                         cerr << "Error: Cannot open file for writing." << endl;
-                        vector<char> errorPacket = createErrorPacket(TFTP_ERROR_INVALID_ARGUMENT_COUNT, "Cannot open file");
-                        sendto(sockfd, errorPacket.data(), errorPacket.size(), 0, (struct sockaddr*)&cli_addr, cli_len);
+                        sendError(sockfd, cli_addr, TFTP_ERROR_INVALID_ARGUMENT_COUNT, "Cannot open file");
                     } else {
                         // Receive the file data from the client
                         receiveFileData(sockfd, fileStream, *(struct sockaddr_in*)&cli_addr, cli_len);
@@ -274,9 +240,7 @@ int handleIncomingRequest(int sockfd) {
                 cout << "Requested filename is: " << filename << endl;
                 cerr << "Error: Received Illegal Opcode: " << opcode << endl;
                 // Create an error packet for an illegal TFTP operation
-                vector<char> errorPacket = createErrorPacket(TFTP_ERROR_INVALID_OPCODE, "Received Illegal Opcode");
-                // Send the error packet to the client
-                sendto(sockfd, errorPacket.data(), errorPacket.size(), 0, (struct sockaddr*)&cli_addr, cli_len);
+                sendError(sockfd, cli_addr, TFTP_ERROR_INVALID_OPCODE, "Received Illegal Opcode");
                 break;
             }
         }

@@ -67,26 +67,34 @@ int main(int argc, char *argv[]) {
 
     // Parse arguments to see if it's read or write request 
     char* requestType = argv[1];
-    // Determine the opcode 
-    uint16_t opcode;
-    if (strcmp(requestType, "r") == 0) {
-        opcode = TFTP_RRQ;
-    } else if (strcmp(requestType, "w") == 0) {
-        opcode = TFTP_WRQ;
-    } else {
-        opcode = static_cast<uint16_t>(atoi(requestType));
-    }
-    const char* mode = "octet";
+    
+    //Create TFTP request packet 
+    char buffer[MAX_PACKET_LEN];
+    char *bpt = buffer; // Point to the beginning of the buffer
 
-    // Create TFTP request packet 
-    vector<char> packet = createRequestPacket(opcode, filename, mode);
-    cout << "The request packet is:" << endl;
-    printBuffer(packet.data(), packet.size());
+    unsigned short *opCode = (unsigned short *)bpt;
+    *opCode = htons((strcmp(requestType, "r") == 0) ? TFTP_RRQ : TFTP_WRQ); // Set opcode for RRQ or WRQ
+    bpt += 2;                                                      // Move pointer right by 2 bytes
 
-    // Send packet to the server 
+    strcpy(bpt, filename);
+    bpt += strlen(filename) + 1; // Move pointer right by length of filename + 1 for null byte
+
+    // Append the mode ("octet" or "netascii")
+    const char *mode = "octet"; // or "netascii" depending on your needs
+    strcpy(bpt, mode);
+    bpt += strlen(mode) + 1; // Move pointer right by length of mode + 1 for null byte
+    // printf("%p %d\n", bpt, bpt-buffer);
+
+    // Calculate the packet length
+    size_t packetLen = bpt - buffer;
+    printf("The request packet is:\n");
+
+    printBuffer(buffer, packetLen);
+
     sockaddr_in serverAddr;
     socklen_t serverAddrLen = sizeof(serverAddr);
-    if (sendto(sockfd, packet.data(), packet.size(), 0, (struct sockaddr*)&serv_addr, serverAddrLen) < 0) {
+
+    if(sendRequest(sockfd, serv_addr, buffer, packetLen) < 0){
         perror("Sendto failed!");
         close(sockfd);
         exit(1);
@@ -104,7 +112,7 @@ int main(int argc, char *argv[]) {
     // Check if the response is an error packet 
     if (receivedOpcode == TFTP_ERROR) {
         TftpError errorPacket = parseErrorPacket(recvBuffer);
-        cout << "Received TFTP Error Packet. Error code " << errorPacket.errorCode << ". Error Msg: " << errorPacket.errorMessage << ": " << opcode << endl;
+        cout << "Received TFTP Error Packet. Error code " << errorPacket.errorCode << ". Error Msg: " << errorPacket.errorMessage << endl;
         close(sockfd);
         exit(1);
     }
@@ -158,9 +166,7 @@ int main(int argc, char *argv[]) {
                     cout << "Received Block #" << dataPacket.blockNumber << endl;
                     blockNumber++;
 
-                    // Send ACK for this block
-                    vector<char> ackPacket = createAckPacket(dataPacket.blockNumber);
-                    sendto(sockfd, ackPacket.data(), ackPacket.size(), 0, (struct sockaddr*)&serverAddr, serverAddrLen);
+                    sendACK(sockfd, serverAddr, dataPacket.blockNumber);
 
                     if (recvLen < 516) { // Last packet
                         lastPacket = true;
@@ -217,9 +223,8 @@ int main(int argc, char *argv[]) {
             fileStream.read(buffer, sizeof(buffer));
             size_t bytesRead = fileStream.gcount();
 
-            vector<char> dataPacket = createDataPacket(blockNumber, buffer, bytesRead);
-            if (sendto(sockfd, dataPacket.data(), dataPacket.size(), 0, (struct sockaddr*)&serv_addr, serverAddrLen) < 0) {
-                perror("Data sendto failed");
+            if(sendData(sockfd, serv_addr, buffer, bytesRead, blockNumber) < 0){
+                perror("Data send to failed");
                 break;
             }
 
@@ -238,13 +243,14 @@ int main(int argc, char *argv[]) {
             if (ackPacket.blockNumber != blockNumber) {
                 // cerr << "Received incorrect ACK number. Expected: " << blockNumber << " Received: " << ackPacket.blockNumber << endl;
                 // break;
+            }else{ //ackPacket.blockNumber == blockNumber
+                cout << "Received ACK #" << ackPacket.blockNumber << endl;
+                blockNumber++;
             }
-            cout << "Received ACK #" << ackPacket.blockNumber << endl;
             if (bytesRead < 512) {
                 lastPacket = true;
             }
 
-            blockNumber++;
         } 
     }
 
