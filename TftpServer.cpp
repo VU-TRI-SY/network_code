@@ -29,7 +29,7 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
         return;
     }
 
-    // sendACK(sock, clientAddr, 0); //send ack for successfull file name
+    sendACK(sock, clientAddr, 0); //send ack for successfull file name
     // std::vector<char> buffer(DATA_PACKET_SIZE);
     int result = registerTimeoutHandler();
     if (result < 0) {

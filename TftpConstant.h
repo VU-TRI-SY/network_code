@@ -8,4 +8,4 @@ static const char * CLIENT_FOLDER = "client-files/"; // DO NOT CHANGE
 static int DATA_PACKET_SIZE = 512;
 static int SERV_UDP_PORT = 61125;
 static std::string SERV_HOST_ADDR = "127.0.0.1";
-static int BUFFER_SIZE = 1024;
+static int BUFFER_SIZE = 516;

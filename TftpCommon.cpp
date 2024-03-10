@@ -25,35 +25,59 @@ static void printBuffer(const char * buffer, unsigned int len) {
             printf("\n");
     }
 }
+static vector<char> createRequestPacket(uint16_t opcode, const string& filename, const string& mode) {
+    // Hold the packet data
+    vector<char> packet;
+
+    // Add opcode to the packet 
+    packet.push_back((opcode >> 8) & 0xFF); // High byte of opcode
+    packet.push_back(opcode & 0xFF); // Low byte of opcode 
+
+    // Add filename to the packet 
+    for (char c : filename) {
+        packet.push_back(c);
+    }
+    // Add a null terminator to the end of the filename 
+    packet.push_back('\0');
+
+    // Add mode for the packet 
+    for (char c : mode) {
+        packet.push_back(c);
+    }
+    // ADd a null terminator to the end of the mode 
+    packet.push_back('\0');
+
+    return packet;
+}
 
 static void sendData(int sock, const sockaddr_in& clientAddr, const char* data, size_t dataSize, uint16_t blockNumber) {
-    char packet[4 + DATA_PACKET_SIZE]; // Assuming DATA_PACKET_SIZE is defined as 512
-    size_t packetSize = 4 + dataSize; // 4 bytes for header, rest for data
+    vector<char> packet;
 
-    // Opcode for DATA packet
-    packet[0] = 0;
-    packet[1] = TFTP_DATA; // DATA_OPCODE should be defined as 3
+    packet.push_back((TFTP_DATA >> 8) & 0xFF);
+    packet.push_back(TFTP_DATA & 0xFF);
 
-    // Block number
-    packet[2] = blockNumber >> 8;
-    packet[3] = blockNumber & 0xFF;
+    packet.push_back((blockNumber >> 8) & 0xFF);
+    packet.push_back(blockNumber & 0xFF);
 
-    // Copy data into packet
-    memcpy(packet + 4, data, dataSize);
+    packet.insert(packet.end(), data, data + dataSize);
+    sendto(sock, packet.data(), packet.size(), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
 
-    // Send the packet
-    sendto(sock, packet, packetSize, 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
 }
 static void sendACK(int sock, const sockaddr_in& clientAddr, uint16_t blockNumber) {
-    char ackPacket[4]; // ACK packet size
-    ackPacket[0] = 0; // Opcode for ACK is 0 4
-    ackPacket[1] = TFTP_ACK; // Opcode for ACK
-    ackPacket[2] = blockNumber >> 8; // Block number high byte
-    ackPacket[3] = blockNumber & 0xFF; // Block number low byte
-    sendto(sock, ackPacket, sizeof(ackPacket), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
+    vector<char> packet;
+
+    // Add opcode for ACK
+    packet.push_back((TFTP_ACK >> 8) & 0xFF);
+    packet.push_back(TFTP_ACK & 0xFF);
+
+    // Add block number
+    packet.push_back((blockNumber >> 8) & 0xFF);
+    packet.push_back(blockNumber & 0xFF);
+    
+    sendto(sock, packet.data(), packet.size(), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
 }
 static void sendError(int sock, const sockaddr_in& clientAddr, int errorCode, const char* errorMessage) {
-    std::vector<char> packet;
+    vector<char> packet;
     // Construct and send an ERROR packet similarly to sendData
     // Opcode for ERROR packet
     packet.push_back((TFTP_ERROR >> 8) & 0xFF);

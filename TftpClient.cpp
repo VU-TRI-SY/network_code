@@ -31,7 +31,7 @@ int receiveACK(int sockfd, sockaddr_in& serv_addr){
     struct sockaddr_in from_addr = serv_addr;
     socklen_t from_len = sizeof(from_addr);
     unsigned short ack_opcode, ack_block_number;
-    char ack_buffer[4]; 
+    char ack_buffer[MAX_PACKET_LEN]; 
     int recv_len = recvfrom(sockfd, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr *)&from_addr, &from_len);
     if (recv_len < 0) {
         perror("Error receiving ACK");
@@ -47,6 +47,7 @@ int receiveACK(int sockfd, sockaddr_in& serv_addr){
     if (ack_opcode == TFTP_ACK) {
         return ack_block_number;
     }
+
 
     if(ack_opcode == TFTP_ERROR){
         int errCode = (ack_buffer[2] << 8) | (unsigned char)ack_buffer[3];
@@ -164,9 +165,9 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
 void handleRRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
     struct sockaddr_in from_addr = serv_addr;
     socklen_t from_len = sizeof(from_addr);
-    //receive the first ACK for confirming from server 
-    // int res = receiveACK(sockfd, serv_addr);
-    // if(res != 0) exitProgram(sockfd, filePtr, 1);
+    // receive the first ACK for confirming from server 
+    int res = receiveACK(sockfd, serv_addr);
+    if(res != 0) exitProgram(sockfd, filePtr, 1);
 
     char buffer[BUFFER_SIZE];
     int blockNumber = 1;
@@ -225,6 +226,7 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
             int errCode = (buffer[2] << 8) | (unsigned char)buffer[3];
             string err_msg = "";
             // // fileStream.write(buffer + 2, recv_len - 2);
+
             for (int i = 4; i <= recv_len - 1; i++)
                 err_msg += buffer[i];
             cout << "Received TFTP Error Packet. Error code " << errCode << ". Error Msg: " << err_msg << endl;
@@ -312,36 +314,34 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    char buffer[MAX_PACKET_LEN];
-    char *bpt = buffer; // Point to the beginning of the buffer
-
-    // Determine the opcode based on the operation mode
-    unsigned short *opCode = (unsigned short *)bpt;
-    *opCode = htons((operationMode == 'r') ? TFTP_RRQ : TFTP_WRQ); // Set opcode for RRQ or WRQ
-    bpt += 2;                                                      // Move pointer right by 2 bytes
-
-    strcpy(bpt, filename);
-    bpt += strlen(filename) + 1; // Move pointer right by length of filename + 1 for null byte
-
-    // Append the mode ("octet" or "netascii")
-    const char *mode = "octet"; // or "netascii" depending on your needs
-    strcpy(bpt, mode);
-    bpt += strlen(mode) + 1; // Move pointer right by length of mode + 1 for null byte
-    // printf("%p %d\n", bpt, bpt-buffer);
-
-    // Calculate the packet length
-    size_t packetLen = bpt - buffer;
-    printf("The request packet is:\n");
-
-    printBuffer(buffer, packetLen);
-
-
-    // Send the request packet to the server
-    if (sendto(sockfd, buffer, packetLen, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
-    {
-        perror("Failed to send request");
+    char* requestType = argv[1];
+    // Determine the opcode 
+    uint16_t opcode;
+    if (operationMode == 'r') {
+        opcode = TFTP_RRQ;
+    } else if (operationMode == 'w') {
+        opcode = TFTP_WRQ;
+    } else {
+        cerr << "Invalid request type.";
+        close(sockfd);
         exit(1);
     }
+    const char* mode = "octet";
+
+    // Create TFTP request packet 
+    vector<char> packet = createRequestPacket(opcode, filename, mode);
+    cout << "The request packet is:" << endl;
+    printBuffer(packet.data(), packet.size());
+
+    // Send packet to the server 
+    sockaddr_in serverAddr;
+    socklen_t serverAddrLen = sizeof(serverAddr);
+    if (sendto(sockfd, packet.data(), packet.size(), 0, (struct sockaddr*)&serv_addr, serverAddrLen) < 0) {
+        perror("Send request failed!");
+        close(sockfd);
+        exit(1);
+    }
+
     printf("Processing tftp request...\n");
     if(operationMode == 'w'){
         handleWRQ(sockfd, serv_addr, filePtr);
