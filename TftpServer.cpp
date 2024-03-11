@@ -11,11 +11,11 @@
 #include <cstring>
 #include <vector>
 #include <unistd.h>
-#include "TftpCommon.cpp"
+#include "TftpCommon.h"
+#include "TftpConstant.h"
 #include <fstream>
 
 using namespace std;
-static const int MAX_RETRY = 10;
 
 char *program;
 unsigned int lastBlockSent = 0;
@@ -39,44 +39,34 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
 
     uint16_t blockNumber = 1;
     bool lastBlock = false;
+    vector<char> dataBuffer(DATA_PACKET_SIZE); //move to this line
     while (lastBlock == false) {
-        std::vector<char> buffer(DATA_PACKET_SIZE); //move to this line
-        fileStream.read(buffer.data(), DATA_PACKET_SIZE);
-        std::streamsize bytesRead = fileStream.gcount();
+        fileStream.read(dataBuffer.data(), DATA_PACKET_SIZE);
+        size_t bytesRead = fileStream.gcount();
         lastBlock = (bytesRead < 512);
 
         // sendData(sock, clientAddr, buffer.data(), bytesRead, blockNumber++);
     
         while(true){
             unsigned short ack_opcode, ack_block_number;
-            char ack_buffer[4];
+            vector<char> ack_buffer(4);
             struct sockaddr_in from_addr = clientAddr;
             socklen_t from_len = sizeof(from_addr);
             alarm(1);
-            sendData(sock, clientAddr, buffer.data(), bytesRead, blockNumber);
-            int recv_len = recvfrom(sock, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr *)&from_addr, &from_len);
+            sendData(sock, clientAddr, dataBuffer.data(), bytesRead, blockNumber);
+            int recv_len = recvfrom(sock, ack_buffer.data(), ack_buffer.size(), 0, (struct sockaddr *)&from_addr, &from_len);
             alarm(0);
             this_thread::sleep_for(chrono::milliseconds(400));
-
             if (recv_len > 0) { // Proper ACK packet size
-                // Extract opcode
-                memcpy(&ack_opcode, ack_buffer, 2);
-                ack_opcode = ntohs(ack_opcode);
-
-                // Extract block number
-                memcpy(&ack_block_number, ack_buffer + 2, 2);
-                ack_block_number = ntohs(ack_block_number);
-                // if (ack_opcode == TFTP_ACK && ack_block_number == blockNumber)
-                if (ack_block_number == blockNumber)
-                {
-                    // std::cout << "Received ACK for block " << ack_block_number << std::endl;
-                    printf("Received Ack #%d\n", ack_block_number);
-                    retryCount = 0;
+                TftpAck ack = exctractAck(ack_buffer);
+                if(ack.block == blockNumber){
+                    cout << "Received Ack #" << ack.block << endl;
                     blockNumber++;
+                    retryCount = 0;
                     break;
                 }
             }else if(errno == EINTR){
-                if (retryCount > MAX_RETRY) {
+                if (retryCount > MAX_RETRY_COUNT) {
                     cerr << "Max retransmission reached. Aborting transfer." << endl;
                     fileStream.close();
                     return;
@@ -84,7 +74,7 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
 
                 cout << "Retransmitting #" << blockNumber << endl;
                 // Retransmit the packet
-                sendData(sock, clientAddr, buffer.data(), bytesRead, blockNumber);
+                sendData(sock, clientAddr, dataBuffer.data(), bytesRead, blockNumber);
             } else{
                 cerr << "recvfrom error: " << strerror(errno) << endl;
                 fileStream.close();
@@ -122,54 +112,33 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
     // Send ACK for WRQ (block number 0)
     sendACK(sock, clientAddr, 0);
 
-    char buffer[BUFFER_SIZE];
+    vector<char> dataBuffer(BUFFER_SIZE);
     int blockNumber = 1;
-    int count = retryCount;
     size_t recv_len;
 
     while(true) {
-        memset(buffer, 0, sizeof(buffer));
+        memset(dataBuffer.data(), 0, dataBuffer.size());
         alarm(1);
-        recv_len = recvfrom(sock, buffer, BUFFER_SIZE, 0, (struct sockaddr*)&clientAddr, &cli_len);
+        recv_len = recvfrom(sock, dataBuffer.data(), dataBuffer.size(), 0, (struct sockaddr*)&clientAddr, &cli_len);
         alarm(0);
         if (recv_len < 0) { // A valid DATA packet must be at least 4 bytes (opcode + block number)
             cerr << "recvfrom error: " << strerror(errno) << endl;
             break; // Exit on other errors.
         }
 
-        if (recv_len >= 4 && buffer[1] == TFTP_DATA) { // DATA opcode is 3
-            int receivedBlockNumber = (buffer[2] << 8) | (unsigned char)buffer[3];
-            if (receivedBlockNumber == blockNumber) {
-                printf("Reveived block #%d\n", receivedBlockNumber);
-                string str_to_write = "";
-                // fileStream.write(buffer + 2, recv_len - 2);
-                for(int i = 4; i <= recv_len-1; i++) str_to_write += buffer[i];
-
-                fileStream << str_to_write; //write data block to file
-
-                sendACK(sock, clientAddr, receivedBlockNumber);
+        if (recv_len >= 4) { 
+            TftpData dataPacket = exctractData(dataBuffer);
+            if(dataPacket.block == blockNumber){
+                fileStream.write(dataBuffer.data() + 4, recv_len-4);
                 blockNumber++;
+                sendACK(sock, clientAddr, dataPacket.block);
                 retryCount = 0;
-                if (recv_len < DATA_PACKET_SIZE + 4) { // Last packet
-                    break;
-                }
-            } else {
-                // Block number mismatch, handle as needed
-                // If the block number is less than expected, it might be a duplicate
-                if (receivedBlockNumber < blockNumber) {
-                    // Resend ACK for the duplicate block to confirm receipt
-                    sendACK(sock, clientAddr, receivedBlockNumber);
-                } else {
-                    // If the block number is greater than expected, log or handle the error
-                    // This situation should not normally occur in TFTP as it implies out-of-order delivery
-                    std::cerr << "Received out-of-order block number: " << receivedBlockNumber << " expected: " << blockNumber << std::endl;
-                    // Consider sending an error packet to the client and possibly terminating the transfer
-                    sendError(sock, clientAddr, 0, "Unexpected block number received");
-                    break; // Exit the loop or handle as appropriate
-                }
+                cout << "Received Block #" << dataPacket.block << endl;
+
+                if(recv_len < MAX_PACKET_LEN) break;
             }
         }else if(errno == EINTR){
-            if (retryCount > MAX_RETRY) {
+            if (retryCount > MAX_RETRY_COUNT) {
                 cerr << "Max retransmission reached. Transfer failed." << endl;
                 fileStream.close();
                 return;
@@ -197,7 +166,7 @@ int handleIncomingRequest(int sockfd) {
         ssize_t recv_len = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&cli_addr, &cli_len);
         if (recv_len < 0) {
             perror("recvfrom failed");
-            break;
+            continue;
         }
 
         char* fileName = buffer + 2;  // Skip the first 2 bytes of opcode

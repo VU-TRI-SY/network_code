@@ -1,7 +1,6 @@
 //
 // Created by B Pan on 1/15/24.
 //
-#include <bits/stdc++.h>
 #include <cstdio>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -9,23 +8,24 @@
 #include <csignal>
 #include <chrono>
 #include <thread>
-#include "TftpError.h"
-#include "TftpOpcode.h"
+#include <string>
+#include <cstring>
+#include <vector> 
+#include <fstream>
+#include "TftpCommon.h"
 #include "TftpConstant.h"
 using namespace std;
 
 // Helper function to print the first len bytes of the buffer in Hex
-static void printBuffer(const char * buffer, unsigned int len) {
+void printBuffer(const char * buffer, unsigned int len) {
     for(int i = 0; i < len; i++) {
-        // printf("%x,", buffer[i]);
         printf("%x", buffer[i]);
-        if (i < len - 1)
-            printf(",");
-        else
-            printf("\n");
+        if (i < len - 1) printf(",");
     }
+    printf("\n");
 }
-static vector<char> createRequestPacket(uint16_t opcode, const string& filename, const string& mode) {
+
+vector<char> createRequestPacket(uint16_t opcode, const string& filename, const string& mode) {
     // Hold the packet data
     vector<char> packet;
 
@@ -50,7 +50,7 @@ static vector<char> createRequestPacket(uint16_t opcode, const string& filename,
     return packet;
 }
 
-static void sendData(int sock, const sockaddr_in& clientAddr, const char* data, size_t dataSize, uint16_t blockNumber) {
+ssize_t sendData(int sock, const sockaddr_in& clientAddr, const char* data, size_t dataSize, uint16_t blockNumber) {
     vector<char> packet;
 
     packet.push_back((TFTP_DATA >> 8) & 0xFF);
@@ -60,10 +60,9 @@ static void sendData(int sock, const sockaddr_in& clientAddr, const char* data, 
     packet.push_back(blockNumber & 0xFF);
 
     packet.insert(packet.end(), data, data + dataSize);
-    sendto(sock, packet.data(), packet.size(), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
-
+    return sendto(sock, packet.data(), packet.size(), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
 }
-static void sendACK(int sock, const sockaddr_in& clientAddr, uint16_t blockNumber) {
+ssize_t sendACK(int sock, const sockaddr_in& clientAddr, uint16_t blockNumber) {
     vector<char> packet;
 
     // Add opcode for ACK
@@ -74,9 +73,9 @@ static void sendACK(int sock, const sockaddr_in& clientAddr, uint16_t blockNumbe
     packet.push_back((blockNumber >> 8) & 0xFF);
     packet.push_back(blockNumber & 0xFF);
     
-    sendto(sock, packet.data(), packet.size(), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
+    return sendto(sock, packet.data(), packet.size(), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
 }
-static void sendError(int sock, const sockaddr_in& clientAddr, int errorCode, const char* errorMessage) {
+ssize_t sendError(int sock, const sockaddr_in& clientAddr, int errorCode, const char* errorMessage) {
     vector<char> packet;
     // Construct and send an ERROR packet similarly to sendData
     // Opcode for ERROR packet
@@ -91,21 +90,54 @@ static void sendError(int sock, const sockaddr_in& clientAddr, int errorCode, co
     }
     // Add a null terminator to the end of the message
     packet.push_back('\0');
-    sendto(sock, packet.data(), packet.size(), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
+    return sendto(sock, packet.data(), packet.size(), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
 }
 
-// To track how retransmit/retry has occurred.
-static int retryCount = 0;
+TftpAck exctractAck (vector<char> packet){
+    TftpAck ack;
+    memcpy(&ack.opcode, packet.data(), sizeof(ack.opcode));
+    ack.opcode = ntohs(ack.opcode);
 
-// Helper function to print the first len bytes of the buffer in Hex
+    memcpy(&ack.block, packet.data() + sizeof(ack.opcode), sizeof(ack.block));
+    ack.block = ntohs(ack.block);
 
-// increment retry count when timeout occurs. 
-static void handleTimeout(int signum ){
+    return ack;
+}
+
+TftpData exctractData (vector<char> packet){
+    TftpData data;
+    memcpy(&data.opcode, packet.data(), sizeof(data.opcode)); 
+    data.opcode = ntohs(data.opcode);
+
+    memcpy(&data.block, packet.data() + sizeof(data.opcode), sizeof(data.block));
+    data.block = ntohs(data.block);
+
+    memcpy(data.data, packet.data() + 4, packet.size()-4);
+    return data;
+}
+
+TftpError exctractError (vector<char> packet){
+    TftpError error;
+
+    memcpy(&error.opcode, packet.data(), sizeof(error.opcode)); 
+    error.opcode = ntohs(error.opcode);
+
+    memcpy(&error.errCode, packet.data() + sizeof(error.opcode), sizeof(error.errCode));
+    error.errCode = ntohs(error.errCode);
+
+    const char* startOfMsg = reinterpret_cast<const char*>(packet.data() + 4);
+    strncpy(error.errMsg, startOfMsg, sizeof(error.errMsg) - 1);
+    error.errMsg[sizeof(error.errMsg) - 1] = '\0'; 
+    
+    return error;
+}
+
+void handleTimeout(int signum ){
     retryCount++;
     printf("timeout occurred! count %d\n", retryCount);
 }
 
-static int registerTimeoutHandler( ){
+int registerTimeoutHandler( ){
     signal(SIGALRM, handleTimeout);
 
     /* disable the restart of system call on signal. otherwise the OS will be stuck in
@@ -118,17 +150,3 @@ static int registerTimeoutHandler( ){
     }
     return 0;
 }
-
-/*
- * Useful things:
- * alarm(1) // set timer for 1 sec
- * alarm(0) // clear timer
- * std::this_thread::sleep_for(std::chrono::milliseconds(200)); // slow down transmission
- */
-
-
-/*
- * TODO: Add common code that is shared between your server and your client here. For example: helper functions for
- * sending bytes, receiving bytes, parse opcode from a tftp packet, parse data block/ack number from a tftp packet,
- * create a data block/ack packet, and the common "process the file transfer" logic.
- */
