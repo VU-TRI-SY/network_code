@@ -62,15 +62,23 @@ bool readNextChunk(FILE *filePtr, char *dataBuffer, size_t *bytesRead)
     // This should not be reached, added to avoid compiler warning
     return false;
 }
-void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
+void handleWRQ(int sockfd, sockaddr_in& serv_addr, const char* filePath){
     struct sockaddr_in from_addr = serv_addr;
     socklen_t from_len = sizeof(from_addr);
-    
+    fstream fileStream;
+    fileStream.open(filePath, ios::in | ios::binary); 
+    if (!fileStream) {
+        cerr << "Error opening file for writing." << endl;
+        close(sockfd);
+        exit(1);
+    }
     vector<char> ackBuffer(BUFFER_SIZE);
     int recv_len = recvfrom(sockfd, ackBuffer.data(), ackBuffer.size(), 0, (struct sockaddr *)&serv_addr, &from_len);
     if(recv_len < 0){
         cerr << "Initial ACK recvfrom failed" << endl;
-        exitProgram(sockfd, filePtr, 1);
+        close(sockfd);
+        fileStream.close();
+        exit(1);
     }
 
     uint16_t recvOpcode = ntohs(*reinterpret_cast<uint16_t*>(ackBuffer.data()));
@@ -78,7 +86,9 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
     if(recvOpcode == TFTP_ERROR){
         TftpError error = exctractError(ackBuffer);
         cout << "Received TFTP Error Packet. Error code " << error.errCode << ". Error Msg: " << error.errMsg << endl;
-        exitProgram(sockfd, filePtr, 1);
+        close(sockfd);
+        fileStream.close();
+        exit(1);
     }
     
     //received Ack
@@ -86,7 +96,9 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
     TftpAck ack = exctractAck(ackBuffer);
     if(ack.block != 0){
         cerr << "Error: Initial ACK with block number 0 not received" << endl;
-        exitProgram(sockfd, filePtr, 1);
+        close(sockfd);
+        fileStream.close();
+        exit(1);
     }
 
     cout << "Received ACK #0\n";
@@ -97,13 +109,15 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
     vector<char> dataBuffer(512);                        // TFTP DATA packet payload size
     while (!lastBlock){
         // Read the next chunk of data from the file, If it is, and more data exists, prepare and send the next DATA packet
-        if (readNextChunk(filePtr, dataBuffer.data(), &bytesRead))
-        {
-
-            int res = sendData(sockfd, serv_addr, dataBuffer.data(), bytesRead, lastBlockSent);
+            char buffer[512];
+            fileStream.read(buffer, sizeof(buffer));
+            size_t bytesRead = fileStream.gcount();
+            int res = sendData(sockfd, serv_addr, buffer, bytesRead, lastBlockSent);
             if(res < 0) {
                 cout << "Send data failed.";
-                exitProgram(sockfd, filePtr, 1);
+                close(sockfd);
+                fileStream.close();
+                exit(1);
             }
 
             this_thread::sleep_for(chrono::milliseconds(200));
@@ -121,15 +135,18 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
                 lastBlockSent++;
             }
             if (bytesRead < 512) lastBlock = true;
-        }else break;
+        
     }
-    exitProgram(sockfd, filePtr, 0);
+    close(sockfd);
+    fileStream.close();
+    exit(0);
 }
 
-void handleRRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
+void handleRRQ(int sockfd, sockaddr_in& serv_addr, const char * filePath){
     sockaddr_in from_addr = serv_addr;
     socklen_t from_len = sizeof(serv_addr);
-
+    fstream fileStream;
+    fileStream.open(filePath, ios::out | ios::binary); 
     vector<char> buffer(BUFFER_SIZE);
     int lastBlockSent = 1;
     size_t recv_len;
@@ -142,7 +159,9 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
         recv_len = recvfrom(sockfd, buffer.data(), buffer.size(), 0, (struct sockaddr *)&serv_addr, &from_len);
         if (recv_len < 0){ 
             perror("Recvfrom failed");
-            exitProgram(sockfd, filePtr, 1);
+            close(sockfd);
+            fileStream.close();
+            exit(1);
         }
 
         uint16_t recv_opCode = ntohs(*reinterpret_cast<uint16_t*>(buffer.data()));
@@ -160,25 +179,31 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, FILE* filePtr){
         if(recv_opCode == TFTP_ERROR){
             TftpError error = exctractError(buffer);
             cout << "Received TFTP Error Packet. Error code " << error.errCode << ". Error Msg: " << error.errMsg << endl;
-            exitProgram(sockfd, filePtr, 1);
+            close(sockfd);
+            fileStream.close();
+            exit(1);
         }
 
         if(recv_opCode == TFTP_DATA){
             TftpData dataPacket = exctractData(buffer);
             if(dataPacket.block == lastBlockSent){
-                fwrite(buffer.data() + 4, sizeof(char), recv_len-4, filePtr);
-                fseek(filePtr, buffer.size()-4, SEEK_SET);
-                cout << "Received Block #" << dataPacket.block << endl;
+                fileStream.write(dataPacket.data, recv_len-4);
+                // if(recv_len > 4)
+                    cout << "Received Block #" << dataPacket.block << endl;
                 lastBlockSent++;
                 sendACK(sockfd, serv_addr, dataPacket.block);
                 if(recv_len < 516) lastBlock = true;
             }
         }else{
             cerr << "Unexpected opcode received." << endl;
-            exitProgram(sockfd, filePtr, 1);
+            close(sockfd);
+            fileStream.close();
+            exit(1);
         }
     };
-    exitProgram(sockfd, filePtr, 0);
+    close(sockfd);
+    fileStream.close();
+    exit(0);
 }
 int main(int argc, char *argv[])
 {
@@ -255,7 +280,7 @@ int main(int argc, char *argv[])
         std::cerr << "Invalid operation mode: " << operationMode << ". Use 'r' for read or 'w' for write." << std::endl;
         exit(1);
     }
-
+    fclose(filePtr);
     // Determine the opcode 
     uint16_t opcode;
     if (operationMode == 'r') {
@@ -285,8 +310,8 @@ int main(int argc, char *argv[])
 
     printf("Processing tftp request...\n");
     if(operationMode == 'w'){
-        handleWRQ(sockfd, serv_addr, filePtr);
+        handleWRQ(sockfd, serv_addr, path_to_file);
     }else if (operationMode == 'r'){
-        handleRRQ(sockfd, serv_addr, filePtr);
+        handleRRQ(sockfd, serv_addr, path_to_file);
     }
 }

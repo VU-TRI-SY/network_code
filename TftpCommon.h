@@ -54,6 +54,7 @@ TftpError exctractError (vector<char> packet);
 
 
 // To track how retransmit/retry has occurred.
+static const int MAX_RETRY_COUNT = 10;
 static int retryCount = 0;
 
 // Helper function to print the first len bytes of the buffer in Hex

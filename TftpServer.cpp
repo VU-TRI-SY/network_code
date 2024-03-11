@@ -124,7 +124,9 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
         if (recv_len < 0) { // A valid DATA packet must be at least 4 bytes (opcode + block number)
             cerr << "recvfrom error: " << strerror(errno) << endl;
             break; // Exit on other errors.
-        }
+        }   
+
+        cout << "Receive len " << recv_len << endl;
 
         if (recv_len >= 4) { 
             TftpData dataPacket = exctractData(dataBuffer);
@@ -138,6 +140,7 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
                 if(recv_len < MAX_PACKET_LEN) break;
             }
         }else if(errno == EINTR){
+            cout << "retry " << retryCount << endl;
             if (retryCount > MAX_RETRY_COUNT) {
                 cerr << "Max retransmission reached. Transfer failed." << endl;
                 fileStream.close();
