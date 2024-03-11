@@ -1,0 +1,2 @@
+Bind socket successfull
+Usage: ./client <r|w> <filename>

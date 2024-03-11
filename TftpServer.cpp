@@ -22,9 +22,10 @@ unsigned int lastBlockSent = 0;
 
 void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileName) {
     string server_folder (SERVER_FOLDER);
-    string file_to_read = server_folder + fileName;
-    std::ifstream fileStream(file_to_read, std::ios::binary);
+    string filePath = server_folder + fileName;
+    std::ifstream fileStream(filePath, std::ios::binary);
     if (!fileStream) {
+        cerr << "Error: File not Found!" << endl;
         sendError(sock, clientAddr, TFTP_ERROR_FILE_NOT_FOUND, "File not found");
         return;
     }
@@ -56,7 +57,7 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
             sendData(sock, clientAddr, dataBuffer.data(), bytesRead, blockNumber);
             int recv_len = recvfrom(sock, ack_buffer.data(), ack_buffer.size(), 0, (struct sockaddr *)&from_addr, &from_len);
             alarm(0);
-            this_thread::sleep_for(chrono::milliseconds(400));
+            // this_thread::sleep_for(chrono::milliseconds(400));
             if (recv_len > 0) { // Proper ACK packet size
                 TftpAck ack = exctractAck(ack_buffer);
                 if(ack.block == blockNumber){
@@ -68,7 +69,6 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
             }else if(errno == EINTR){
                 if (retryCount > MAX_RETRY_COUNT) {
                     cerr << "Max retransmission reached. Aborting transfer." << endl;
-                    fileStream.close();
                     return;
                 }
 
@@ -77,7 +77,6 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
                 sendData(sock, clientAddr, dataBuffer.data(), bytesRead, blockNumber);
             } else{
                 cerr << "recvfrom error: " << strerror(errno) << endl;
-                fileStream.close();
                 return;
             }
         }
@@ -88,17 +87,18 @@ void handleRRQ(int sock, const sockaddr_in& clientAddr, const std::string& fileN
 
 void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::string& fileName) {
     string server_folder (SERVER_FOLDER);
-    string file_to_write = server_folder + fileName;
-    ifstream testStream(file_to_write, ios::binary);
+    string filePath = server_folder + fileName;
+    ifstream testStream(filePath, ios::binary);
     if(testStream.good()){
-        //error:  TFTP_ERROR_FILE_ALREADY_EXISTS
+        cerr << "Error: File already exists!" << endl;
         sendError(sock, clientAddr, TFTP_ERROR_FILE_ALREADY_EXISTS, "File already exists");
         testStream.close();
         return; //stop function 
     }
     
-    std::ofstream fileStream(file_to_write, ios::out | ios::binary); //open file to write
-    if (!fileStream.is_open()) {
+    std::ofstream fileStream(filePath, ios::out | ios::binary); //open file to write
+    if (!fileStream) {
+        cerr << "Error: Cannot open file" << endl;
         sendError(sock, clientAddr, TFTP_ERROR_INVALID_ARGUMENT_COUNT, "Could not open file");
         return;
     }
@@ -126,8 +126,6 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
             break; // Exit on other errors.
         }   
 
-        cout << "Receive len " << recv_len << endl;
-
         if (recv_len >= 4) { 
             TftpData dataPacket = exctractData(dataBuffer);
             if(dataPacket.block == blockNumber){
@@ -140,10 +138,8 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
                 if(recv_len < MAX_PACKET_LEN) break;
             }
         }else if(errno == EINTR){
-            cout << "retry " << retryCount << endl;
             if (retryCount > MAX_RETRY_COUNT) {
                 cerr << "Max retransmission reached. Transfer failed." << endl;
-                fileStream.close();
                 return;
             }
 
@@ -158,11 +154,8 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
 int handleIncomingRequest(int sockfd) {
 
     struct sockaddr cli_addr;
-    /*
-     * TODO: define necessary variables needed for handling incoming requests.
-     */
     socklen_t cli_len = sizeof(cli_addr);
-    char buffer[BUFFER_SIZE];
+    char buffer[1024];
     FILE *file = nullptr;
     for (;;) {
         printf("\nWating to receive request\n\n");
@@ -176,14 +169,17 @@ int handleIncomingRequest(int sockfd) {
         printf("Requested filename is %s\n", fileName);
         struct sockaddr_in clientAddr = *(struct sockaddr_in*)&cli_addr;
         // Determine packet type (RRQ or WRQ) and handle accordingly
-        if (buffer[1] == TFTP_RRQ) handleRRQ(sockfd, clientAddr, std::string(fileName));
-        else if (buffer[1] == TFTP_WRQ) handleWRQ(sockfd, clientAddr, cli_len, std::string(fileName));
+
+        uint16_t opcode = ntohs(*(uint16_t *)buffer);
+
+        if (opcode == TFTP_RRQ) handleRRQ(sockfd, *(struct sockaddr_in*)&cli_addr, std::string(fileName));
+        else if (opcode == TFTP_WRQ) handleWRQ(sockfd, *(struct sockaddr_in*)&cli_addr, cli_len, std::string(fileName));
         else{
             uint16_t opcode = ntohs(*(uint16_t *)buffer);
             cout << "Requested filename is: " << fileName << endl;
             cerr << "Error: Received Illegal Opcode: " << opcode << endl;
             // Create an error packet for an illegal TFTP operation
-            sendError(sockfd, clientAddr, TFTP_ERROR_INVALID_OPCODE, "Received Illegal Opcode");
+            sendError(sockfd, *(struct sockaddr_in*)&cli_addr, TFTP_ERROR_INVALID_OPCODE, "Received Illegal Opcode");
             // break;
         }
         if (file) {

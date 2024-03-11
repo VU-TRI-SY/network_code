@@ -22,46 +22,7 @@ using namespace std;
 
 /* A pointer to the name of this program for error reporting.      */
 char *program;
-void exitProgram(int sockfd, FILE* filePtr, int exit_code){
-    fclose(filePtr);
-    close(sockfd);
-    exit(exit_code);
-}
 
-bool readNextChunk(FILE *filePtr, char *dataBuffer, size_t *bytesRead)
-{
-    if (!filePtr || !dataBuffer || !bytesRead)
-    {
-        // Invalid parameters
-        return false;
-    }
-    // Attempt to read up to 512 bytes from the file
-    *bytesRead = fread(dataBuffer, 1, 512, filePtr);
-    // return false;
-    if (*bytesRead > 0)
-    {
-        // Data was read successfully
-        return true;
-    }
-    else
-    {
-        // Check for error or end of file
-        if (feof(filePtr))
-        {
-            // End of file reached
-            return false;
-        }
-        else if (ferror(filePtr))
-        {
-            // Error reading file
-            perror("Error reading file");
-            return false;
-        }
-    }
-
-    // This should not be reached, added to avoid compiler warning
-    return false;
-}
 void handleWRQ(int sockfd, sockaddr_in& serv_addr, const char* filePath){
     struct sockaddr_in from_addr = serv_addr;
     socklen_t from_len = sizeof(from_addr);
@@ -75,7 +36,7 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, const char* filePath){
     vector<char> ackBuffer(BUFFER_SIZE);
     int recv_len = recvfrom(sockfd, ackBuffer.data(), ackBuffer.size(), 0, (struct sockaddr *)&serv_addr, &from_len);
     if(recv_len < 0){
-        cerr << "Initial ACK recvfrom failed" << endl;
+        perror("Initial ACK recvfrom failed");
         close(sockfd);
         fileStream.close();
         exit(1);
@@ -87,7 +48,6 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, const char* filePath){
         TftpError error = exctractError(ackBuffer);
         cout << "Received TFTP Error Packet. Error code " << error.errCode << ". Error Msg: " << error.errMsg << endl;
         close(sockfd);
-        fileStream.close();
         exit(1);
     }
     
@@ -97,7 +57,6 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, const char* filePath){
     if(ack.block != 0){
         cerr << "Error: Initial ACK with block number 0 not received" << endl;
         close(sockfd);
-        fileStream.close();
         exit(1);
     }
 
@@ -114,10 +73,8 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, const char* filePath){
             size_t bytesRead = fileStream.gcount();
             int res = sendData(sockfd, serv_addr, buffer, bytesRead, lastBlockSent);
             if(res < 0) {
-                cout << "Send data failed.";
-                close(sockfd);
-                fileStream.close();
-                exit(1);
+                perror("Send data failed.");
+                break;
             }
 
             this_thread::sleep_for(chrono::milliseconds(200));
@@ -138,7 +95,7 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, const char* filePath){
         
     }
     close(sockfd);
-    fileStream.close();
+    if(fileStream.is_open()) fileStream.close();
     exit(0);
 }
 
@@ -147,14 +104,18 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, const char * filePath){
     socklen_t from_len = sizeof(serv_addr);
     fstream fileStream;
     fileStream.open(filePath, ios::out | ios::binary); 
+    if (!fileStream) {
+        cerr << "Error opening file." << endl;
+        close(sockfd);
+        exit(1);
+    }
     vector<char> buffer(BUFFER_SIZE);
     int lastBlockSent = 1;
     size_t recv_len;
 
     //infinite loop to receive data blocks from server
     bool lastBlock = false;
-    while(lastBlock == false)
-    {
+    while(lastBlock == false){
         //receive data from server
         recv_len = recvfrom(sockfd, buffer.data(), buffer.size(), 0, (struct sockaddr *)&serv_addr, &from_len);
         if (recv_len < 0){ 
@@ -169,11 +130,7 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, const char * filePath){
         if(recv_opCode == TFTP_ACK){
             TftpAck ack = exctractAck(buffer);
             int block = ack.block;
-            if(block == 0) {
-                cout << "receive first ACK\n";
-                continue; //this is initial ACK
-
-            }
+            if(block == 0) continue;
         }
 
         if(recv_opCode == TFTP_ERROR){
@@ -188,25 +145,21 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, const char * filePath){
             TftpData dataPacket = exctractData(buffer);
             if(dataPacket.block == lastBlockSent){
                 fileStream.write(dataPacket.data, recv_len-4);
-                // if(recv_len > 4)
-                    cout << "Received Block #" << dataPacket.block << endl;
+                cout << "Received Block #" << dataPacket.block << endl;
                 lastBlockSent++;
                 sendACK(sockfd, serv_addr, dataPacket.block);
                 if(recv_len < 516) lastBlock = true;
             }
         }else{
             cerr << "Unexpected opcode received." << endl;
-            close(sockfd);
-            fileStream.close();
-            exit(1);
+            break;
         }
     };
     close(sockfd);
     fileStream.close();
     exit(0);
 }
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]){
     program = argv[0];
 
     int sockfd;
@@ -215,8 +168,7 @@ int main(int argc, char *argv[])
     memset(&cli_addr, 0, sizeof(cli_addr));
 
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd < 0)
-    {
+    if (sockfd < 0) {
         perror("Returning on error");
         exit(1);
     }
@@ -229,11 +181,9 @@ int main(int argc, char *argv[])
     // sets the port number for the socket.
     serv_addr.sin_port = htons(SERV_UDP_PORT);
 
-
     printf("Bind socket successfull\n");
 
-    if (argc != 3)
-    {
+    if (argc != 3) {
         std::cerr << "Usage: " << program << " <r|w> <filename>" << std::endl;
         exit(1);
     }
@@ -249,7 +199,6 @@ int main(int argc, char *argv[])
     char *path_to_file = path;
     // Check operation mode and open the file accordingly
 
-    
     // Determine the opcode 
     uint16_t opcode;
     if (operationMode == 'r') {
