@@ -249,38 +249,7 @@ int main(int argc, char *argv[])
     char *path_to_file = path;
     // Check operation mode and open the file accordingly
 
-    FILE *filePtr = nullptr;
-    if (operationMode == 'r')
-    {
-        // Open the file for reading (server will send the file to the client)
-        filePtr = fopen(path_to_file, "at"); //open file in client-folder
-
-        if (!filePtr)
-        {
-            std::cerr << "Failed to open file " << path_to_file << std::endl;
-            close(sockfd);
-            exit(1);
-        }
-    }
-    else if (operationMode == 'w')
-    {
-        // Open the file for writing (server will receive the file from the client)
-        filePtr = fopen(path_to_file, "r");
-        // printf("Writing file %s %p\n", path_to_file, filePtr);
-        if (!filePtr)
-        {
-            std::cerr << "Failed to open file: " << path_to_file << std::endl;
-            close(sockfd);
-            exit(1);
-        }
-    }
-    else
-    {
-        // Invalid operation mode
-        std::cerr << "Invalid operation mode: " << operationMode << ". Use 'r' for read or 'w' for write." << std::endl;
-        exit(1);
-    }
-    fclose(filePtr);
+    
     // Determine the opcode 
     uint16_t opcode;
     if (operationMode == 'r') {
@@ -288,9 +257,7 @@ int main(int argc, char *argv[])
     } else if (operationMode == 'w') {
         opcode = TFTP_WRQ;
     } else {
-        cerr << "Invalid request type.";
-        close(sockfd);
-        exit(1);
+        opcode = TFTP_UNDEFINED;
     }
     string mode = "octet";
 
@@ -311,7 +278,7 @@ int main(int argc, char *argv[])
     printf("Processing tftp request...\n");
     if(operationMode == 'w'){
         handleWRQ(sockfd, serv_addr, path_to_file);
-    }else if (operationMode == 'r'){
+    }else { //contains both 2 cases: TFTP_RRQ or TFTP_UNDEFINED
         handleRRQ(sockfd, serv_addr, path_to_file);
     }
 }

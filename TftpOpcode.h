@@ -6,3 +6,4 @@
 #define TFTP_DATA 3
 #define TFTP_ACK 4
 #define TFTP_ERROR 5
+#define TFTP_UNDEFINED 6

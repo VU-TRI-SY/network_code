@@ -178,7 +178,14 @@ int handleIncomingRequest(int sockfd) {
         // Determine packet type (RRQ or WRQ) and handle accordingly
         if (buffer[1] == TFTP_RRQ) handleRRQ(sockfd, clientAddr, std::string(fileName));
         else if (buffer[1] == TFTP_WRQ) handleWRQ(sockfd, clientAddr, cli_len, std::string(fileName));
-
+        else{
+            uint16_t opcode = ntohs(*(uint16_t *)buffer);
+            cout << "Requested filename is: " << fileName << endl;
+            cerr << "Error: Received Illegal Opcode: " << opcode << endl;
+            // Create an error packet for an illegal TFTP operation
+            sendError(sockfd, clientAddr, TFTP_ERROR_INVALID_OPCODE, "Received Illegal Opcode");
+            break;
+        }
         if (file) {
             fclose(file);
             file = nullptr;
