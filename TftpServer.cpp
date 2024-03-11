@@ -184,7 +184,7 @@ int handleIncomingRequest(int sockfd) {
             cerr << "Error: Received Illegal Opcode: " << opcode << endl;
             // Create an error packet for an illegal TFTP operation
             sendError(sockfd, clientAddr, TFTP_ERROR_INVALID_OPCODE, "Received Illegal Opcode");
-            break;
+            // break;
         }
         if (file) {
             fclose(file);

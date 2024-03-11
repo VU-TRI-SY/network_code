@@ -278,7 +278,9 @@ int main(int argc, char *argv[])
     printf("Processing tftp request...\n");
     if(operationMode == 'w'){
         handleWRQ(sockfd, serv_addr, path_to_file);
-    }else { //contains both 2 cases: TFTP_RRQ or TFTP_UNDEFINED
+    }else if(operationMode == 'r'){
         handleRRQ(sockfd, serv_addr, path_to_file);
     }
+
+    //undefined opcode: not receive
 }
