@@ -77,7 +77,7 @@ void handleWRQ(int sockfd, sockaddr_in& serv_addr, const char* filePath){
                 break;
             }
 
-            this_thread::sleep_for(chrono::milliseconds(200));
+            // this_thread::sleep_for(chrono::milliseconds(200));
             //receive Ack
             recv_len = recvfrom(sockfd, ackBuffer.data(), ackBuffer.size(), 0, (struct sockaddr *)&serv_addr, &from_len);
             if(recv_len < 0){
@@ -154,6 +154,9 @@ void handleRRQ(int sockfd, sockaddr_in& serv_addr, const char * filePath){
             cerr << "Unexpected opcode received." << endl;
             break;
         }
+
+        // this_thread::sleep_for(chrono::milliseconds(50));
+
     };
     close(sockfd);
     fileStream.close();

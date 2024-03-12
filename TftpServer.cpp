@@ -130,6 +130,7 @@ void handleWRQ(int sock, sockaddr_in& clientAddr, socklen_t cli_len, const std::
             TftpData dataPacket = exctractData(dataBuffer);
             if(dataPacket.block == blockNumber){
                 fileStream.write(dataBuffer.data() + 4, recv_len-4);
+                cout << "received block and last block " << dataPacket.block << " " << blockNumber << endl;
                 blockNumber++;
                 sendACK(sock, clientAddr, dataPacket.block);
                 retryCount = 0;
